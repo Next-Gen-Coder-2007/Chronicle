@@ -5,6 +5,7 @@ import Register from './pages/Register'
 import DashboardLayout from './layouts/DashboardLayout'
 import Home from './pages/Home'
 import Memories from './pages/Memories'
+import MemoryDetail from './pages/MemoryDetail'
 import Settings from './pages/Settings'
 import StatusToast from './components/StatusToast'
 
@@ -22,6 +23,7 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/home" element={<Navigate to="/" replace />} />
           <Route path="/memories" element={<Memories />} />
+          <Route path="/memories/:id" element={<MemoryDetail />} />
           <Route path="/settings" element={<Settings />} />
         </Route>
 
