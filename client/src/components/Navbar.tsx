@@ -1,6 +1,6 @@
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Menu, LogOut, Plus } from 'lucide-react'
-import { useAppSelector, useAppDispatch, openCreateModal, logoutUser } from '../store'
+import { Menu, LogOut } from 'lucide-react'
+import { useAppSelector, useAppDispatch, logoutUser } from '../store'
 import { showToast } from '../utils/toast'
 
 interface NavbarProps {
@@ -40,25 +40,20 @@ export default function Navbar({ onToggleSidebar }: NavbarProps) {
             <Menu className="w-5 h-5" />
           </button>
         )}
-        <h1 className="text-lg font-bold text-slate-900 capitalize tracking-tight">
-          {getPageTitle()}
-        </h1>
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-indigo-600" />
+          <h1 className="text-lg font-bold text-slate-900 capitalize tracking-tight">
+            {getPageTitle()}
+          </h1>
+        </div>
       </div>
 
       <div className="flex items-center gap-3">
-        <button
-          onClick={() => dispatch(openCreateModal())}
-          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 active:bg-indigo-200/80 text-indigo-600 rounded-xl text-xs sm:text-sm font-semibold transition-colors cursor-pointer border border-indigo-100"
-        >
-          <Plus className="w-4 h-4 stroke-[2.5]" />
-          <span>Create Memory</span>
-        </button>
-
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold uppercase shadow-xs">
+          <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold uppercase shrink-0">
             {user.fullName ? user.fullName.charAt(0) : user.username.charAt(0)}
           </div>
-          <span className="text-sm font-medium text-slate-700 hidden sm:inline-block">
+          <span className="text-sm font-semibold text-slate-700 hidden sm:inline-block">
             @{user.username}
           </span>
         </div>

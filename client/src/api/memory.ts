@@ -1,5 +1,15 @@
 import { api } from './client'
 
+export interface MemoryMedia {
+  id: string
+  name: string
+  url?: string
+  type: string
+  size?: number
+  content?: string
+  uploadedAt: string
+}
+
 export interface Memory {
   id: string
   title: string
@@ -8,6 +18,8 @@ export interface Memory {
   ended?: string
   status: 'ongoing' | 'completed'
   location?: string
+  tags?: string[] | string
+  media?: MemoryMedia[]
   userId?: string
   createdAt: string
   updatedAt: string
@@ -20,6 +32,7 @@ export interface CreateMemoryPayload {
   ended?: string
   status: 'ongoing' | 'completed'
   location?: string
+  tags?: string[]
 }
 
 export interface ApiResponse<T> {
@@ -41,12 +54,20 @@ export const getRecentMemoriesApi = async (limit: number = 5): Promise<ApiRespon
   return response.data
 }
 
+export const getMemoryByIdApi = async (id: string): Promise<ApiResponse<Memory>> => {
+  const response = await api.get<ApiResponse<Memory>>(`/memories/${id}`)
+  return response.data
+}
+
 export interface UpdateMemoryPayload {
   title?: string
   description?: string
   started?: string
   ended?: string
   status?: 'ongoing' | 'completed'
+  location?: string
+  tags?: string[]
+  media?: MemoryMedia[]
 }
 
 export const createMemoryApi = async (data: CreateMemoryPayload): Promise<ApiResponse<Memory>> => {
@@ -61,5 +82,21 @@ export const updateMemoryApi = async (id: string, data: UpdateMemoryPayload): Pr
 
 export const deleteMemoryApi = async (id: string): Promise<{ success: boolean; message: string }> => {
   const response = await api.delete<{ success: boolean; message: string }>(`/memories/${id}`)
+  return response.data
+}
+
+export const uploadMemoryMediaApi = async (
+  id: string,
+  data: { name: string; url?: string; type: string; size?: number; content?: string },
+): Promise<ApiResponse<Memory>> => {
+  const response = await api.post<ApiResponse<Memory>>(`/memories/${id}/media`, data)
+  return response.data
+}
+
+export const deleteMemoryMediaApi = async (
+  id: string,
+  mediaId: string,
+): Promise<ApiResponse<Memory>> => {
+  const response = await api.delete<ApiResponse<Memory>>(`/memories/${id}/media/${mediaId}`)
   return response.data
 }

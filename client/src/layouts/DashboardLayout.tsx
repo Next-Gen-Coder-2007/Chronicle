@@ -52,18 +52,18 @@ export default function DashboardLayout() {
   }
 
   return (
-    <div className="min-h-screen w-full bg-[#f8fafd] flex flex-col">
+    <div className="min-h-screen w-full bg-[#f8fafd] flex flex-col selection:bg-indigo-500 selection:text-white">
       <Sidebar
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
       />
 
-      <div className="flex-1 flex flex-col min-w-0 lg:pl-64 min-h-screen">
+      <div className="relative z-10 flex-1 flex flex-col min-w-0 lg:pl-64 min-h-screen">
         <Navbar
           onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
         />
 
-        <main className="flex-1 p-4 sm:p-6 lg:p-8">
+        <main className="flex-1 p-3.5 sm:p-5 lg:p-6">
           <Outlet />
         </main>
       </div>

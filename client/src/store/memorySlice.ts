@@ -4,6 +4,8 @@ import {
   createMemoryApi,
   updateMemoryApi,
   deleteMemoryApi,
+  uploadMemoryMediaApi,
+  deleteMemoryMediaApi,
   type Memory,
   type CreateMemoryPayload,
   type UpdateMemoryPayload,
@@ -82,6 +84,42 @@ export const deleteMemory = createAsyncThunk(
   },
 )
 
+export const uploadMemoryMedia = createAsyncThunk(
+  'memories/uploadMemoryMedia',
+  async (
+    { id, media }: { id: string; media: { name: string; url?: string; type: string; size?: number; content?: string } },
+    { rejectWithValue },
+  ) => {
+    try {
+      const res = await uploadMemoryMediaApi(id, media)
+      showToast('Attachment added successfully!', 'success')
+      return res.data
+    } catch (err: any) {
+      const msg = err.response?.data?.message || 'Failed to add attachment'
+      showToast(msg, 'error')
+      return rejectWithValue(msg)
+    }
+  },
+)
+
+export const deleteMemoryMedia = createAsyncThunk(
+  'memories/deleteMemoryMedia',
+  async (
+    { id, mediaId }: { id: string; mediaId: string },
+    { rejectWithValue },
+  ) => {
+    try {
+      const res = await deleteMemoryMediaApi(id, mediaId)
+      showToast('Attachment deleted', 'success')
+      return res.data
+    } catch (err: any) {
+      const msg = err.response?.data?.message || 'Failed to delete attachment'
+      showToast(msg, 'error')
+      return rejectWithValue(msg)
+    }
+  },
+)
+
 export const memorySlice = createSlice({
   name: 'memories',
   initialState,
@@ -137,6 +175,16 @@ export const memorySlice = createSlice({
       })
       .addCase(deleteMemory.fulfilled, (state, action) => {
         state.memories = state.memories.filter((m) => m.id !== action.payload)
+      })
+      .addCase(uploadMemoryMedia.fulfilled, (state, action) => {
+        state.memories = state.memories.map((m) =>
+          m.id === action.payload.id ? action.payload : m,
+        )
+      })
+      .addCase(deleteMemoryMedia.fulfilled, (state, action) => {
+        state.memories = state.memories.map((m) =>
+          m.id === action.payload.id ? action.payload : m,
+        )
       })
   },
 })

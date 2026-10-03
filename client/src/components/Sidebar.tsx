@@ -8,9 +8,30 @@ interface SidebarProps {
 }
 
 const navItems = [
-  { path: '/', label: 'Home', icon: Home },
-  { path: '/memories', label: 'Memories', icon: Image },
-  { path: '/settings', label: 'Settings', icon: Settings },
+  {
+    path: '/',
+    label: 'Home',
+    icon: Home,
+    activeClass: 'bg-indigo-50 text-indigo-700 font-semibold border-l-4 border-indigo-600',
+    activeIcon: 'text-indigo-600',
+    hoverClass: 'hover:bg-slate-50 hover:text-slate-900',
+  },
+  {
+    path: '/memories',
+    label: 'Memories',
+    icon: Image,
+    activeClass: 'bg-indigo-50 text-indigo-700 font-semibold border-l-4 border-indigo-600',
+    activeIcon: 'text-indigo-600',
+    hoverClass: 'hover:bg-slate-50 hover:text-slate-900',
+  },
+  {
+    path: '/settings',
+    label: 'Settings',
+    icon: Settings,
+    activeClass: 'bg-indigo-50 text-indigo-700 font-semibold border-l-4 border-indigo-600',
+    activeIcon: 'text-indigo-600',
+    hoverClass: 'hover:bg-slate-50 hover:text-slate-900',
+  },
 ]
 
 export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
@@ -41,7 +62,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
         }`}
       >
         <div className="h-16 px-6 flex items-center gap-3 border-b border-slate-100">
-          <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center text-white font-bold text-lg shadow-sm">
+          <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center text-white font-black text-lg shadow-sm">
             C
           </div>
           <span className="text-lg font-bold text-slate-900 tracking-tight">
@@ -67,13 +88,13 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
                 onClick={onClose}
                 className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-colors cursor-pointer ${
                   isActive
-                    ? 'bg-indigo-50 text-indigo-600 font-semibold shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                    ? item.activeClass
+                    : `text-slate-600 ${item.hoverClass}`
                 }`}
               >
                 <Icon
-                  className={`w-5 h-5 ${
-                    isActive ? 'text-indigo-600' : 'text-slate-400'
+                  className={`w-5 h-5 transition-colors ${
+                    isActive ? item.activeIcon : 'text-slate-400'
                   }`}
                 />
                 <span>{item.label}</span>
@@ -83,16 +104,16 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
         </nav>
 
         <div className="p-4 border-t border-slate-100">
-          <div className="flex items-center justify-between p-2 rounded-xl bg-slate-50">
+          <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-200/60">
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold uppercase shrink-0">
                 {user.fullName ? user.fullName.charAt(0) : user.username.charAt(0)}
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-semibold text-slate-800 truncate">
+                <p className="text-xs font-bold text-slate-800 truncate">
                   {user.fullName || user.username}
                 </p>
-                <p className="text-[11px] text-slate-400 truncate">
+                <p className="text-[11px] text-slate-400 font-medium truncate">
                   @{user.username}
                 </p>
               </div>
