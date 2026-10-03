@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { motion, type Variants } from 'framer-motion'
 
 import friendsImg from '../assets/memories/friends.jpg'
@@ -36,7 +37,7 @@ export default function Login() {
   }
 
   return (
-    <div className="relative h-screen max-h-screen w-full bg-[#f8fafd] overflow-hidden text-slate-800 flex items-center justify-center selection:bg-indigo-500 selection:text-white">
+    <div className="relative min-h-screen w-full bg-[#f8fafd] text-slate-800 flex items-center justify-center selection:bg-indigo-500 selection:text-white py-8 lg:py-4">
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute -top-32 -left-32 w-[420px] h-[420px] rounded-full bg-blue-100/40 blur-3xl" />
         <div className="absolute -bottom-32 -left-20 w-[460px] h-[460px] rounded-full bg-indigo-100/30 blur-3xl" />
@@ -44,14 +45,14 @@ export default function Login() {
         <div className="absolute -bottom-20 right-1/4 w-96 h-96 rounded-full bg-sky-100/25 blur-3xl" />
       </div>
 
-      <div className="relative z-10 w-full max-w-[1440px] mx-auto px-6 sm:px-10 lg:px-12 h-full flex flex-col justify-center py-2 sm:py-4">
+      <div className="relative z-10 w-full max-w-[1440px] mx-auto px-4 sm:px-8 lg:px-12 flex flex-col justify-center">
         <motion.main
           variants={containerVariants}
           initial="hidden"
           animate="visible"
-          className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-center lg:translate-x-8 sm:translate-x-4"
+          className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-center lg:translate-x-8"
         >
-          <div className="lg:col-span-7 flex flex-col justify-center">
+          <div className="hidden lg:flex lg:col-span-7 flex-col justify-center">
             <div className="mb-4 lg:mb-5">
               <h1 className="text-4xl sm:text-5xl lg:text-[54px] font-extrabold tracking-tight text-slate-900 leading-[1.08]">
                 Your{' '}
@@ -276,20 +277,23 @@ export default function Login() {
             </div>
           </div>
 
-          <div className="lg:col-span-5 flex justify-center lg:justify-start lg:pl-6">
-            <div className="w-full max-w-[390px] bg-white rounded-3xl p-6 sm:p-8 shadow-xl shadow-slate-200/50 border border-slate-100">
-              <div className="mb-5 text-center">
-                <h2 className="text-2xl font-bold text-slate-900 tracking-tight">
+          <div className="w-full lg:col-span-5 flex justify-center lg:justify-start lg:pl-6">
+            <div className="w-full max-w-[420px] bg-white rounded-3xl p-6 sm:p-7 shadow-xl shadow-slate-200/50 border border-slate-100">
+              <div className="mb-4 text-center">
+                <h2 className="text-2xl sm:text-[27px] font-bold text-slate-900 tracking-tight">
                   Welcome back
                 </h2>
-                <p className="text-xs text-slate-400 mt-1">
+                <p className="text-xs sm:text-sm text-slate-500 mt-1">
                   Log in to continue to your memories
                 </p>
               </div>
 
-              <form onSubmit={handleSubmit} className="space-y-3.5">
+              <form onSubmit={handleSubmit} className="space-y-3">
                 <div>
-                  <div className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 flex items-center gap-3 focus-within:border-slate-800 focus-within:ring-1 focus-within:ring-slate-800 transition-colors">
+                  <label className="block text-xs sm:text-[13px] font-medium text-slate-700 mb-1 ml-0.5">
+                    Email, Username or Phone
+                  </label>
+                  <div className="w-full h-11 rounded-xl border border-slate-200 bg-white px-3 flex items-center gap-2.5 focus-within:border-slate-800 focus-within:ring-1 focus-within:ring-slate-800 transition-colors">
                     <svg
                       className="w-4 h-4 text-slate-400 flex-shrink-0"
                       viewBox="0 0 24 24"
@@ -308,13 +312,16 @@ export default function Login() {
                       value={identifier}
                       onChange={(e) => setIdentifier(e.target.value)}
                       placeholder="Mobile number, username or email"
-                      className="w-full bg-transparent text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus:outline-none"
+                      className="w-full bg-transparent text-sm sm:text-[14.5px] text-slate-900 placeholder:text-slate-400 focus:outline-none"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <div className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 flex items-center gap-3 focus-within:border-slate-800 focus-within:ring-1 focus-within:ring-slate-800 transition-colors">
+                  <label className="block text-xs sm:text-[13px] font-medium text-slate-700 mb-1 ml-0.5">
+                    Password
+                  </label>
+                  <div className="w-full h-11 rounded-xl border border-slate-200 bg-white px-3 flex items-center gap-2.5 focus-within:border-slate-800 focus-within:ring-1 focus-within:ring-slate-800 transition-colors">
                     <svg
                       className="w-4 h-4 text-slate-400 flex-shrink-0"
                       viewBox="0 0 24 24"
@@ -333,12 +340,13 @@ export default function Login() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="Password"
-                      className="w-full bg-transparent text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus:outline-none"
+                      className="w-full bg-transparent text-sm sm:text-[14.5px] text-slate-900 placeholder:text-slate-400 focus:outline-none"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="text-slate-400 hover:text-slate-600 transition p-0.5 cursor-pointer"
+                      className="text-slate-400 hover:text-slate-600 transition p-1 cursor-pointer"
+                      title={showPassword ? 'Hide password' : 'Show password'}
                     >
                       {showPassword ? (
                         <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -360,14 +368,14 @@ export default function Login() {
                   whileTap={{ scale: 0.98 }}
                   type="submit"
                   disabled={isLoading}
-                  className="w-full py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-medium text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer"
+                  className="w-full mt-2 h-11 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-medium text-sm sm:text-[15px] flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer"
                 >
                   {isLoading ? (
                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                   ) : (
                     <>
                       <span>Log in</span>
-                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                         <line x1="5" y1="12" x2="19" y2="12" />
                         <polyline points="12 5 19 12 12 19" />
                       </svg>
@@ -380,17 +388,17 @@ export default function Login() {
                 <button
                   type="button"
                   onClick={() => alert('Password reset link sent!')}
-                  className="text-xs text-slate-500 hover:text-slate-800 font-medium transition cursor-pointer"
+                  className="text-xs sm:text-[13px] text-slate-500 hover:text-slate-800 font-medium transition cursor-pointer"
                 >
                   Forgot password?
                 </button>
               </div>
 
-              <div className="relative my-3.5 flex items-center justify-center">
+              <div className="relative my-3 flex items-center justify-center">
                 <div className="absolute inset-0 flex items-center">
                   <div className="w-full border-t border-slate-100" />
                 </div>
-                <span className="relative bg-white px-3 text-[11px] text-slate-400 font-normal">
+                <span className="relative bg-white px-3 text-xs text-slate-400 font-normal">
                   or
                 </span>
               </div>
@@ -400,9 +408,9 @@ export default function Login() {
                 whileTap={{ scale: 0.98 }}
                 type="button"
                 onClick={() => alert('Signing in with Google...')}
-                className="w-full py-2.5 px-4 rounded-xl border border-slate-200 hover:bg-slate-50/80 bg-white text-slate-700 text-xs sm:text-sm font-medium flex items-center justify-center gap-2.5 transition cursor-pointer"
+                className="w-full h-11 px-4 rounded-xl border border-slate-200 hover:bg-slate-50/80 bg-white text-slate-700 text-sm font-medium flex items-center justify-center gap-2.5 transition cursor-pointer"
               >
-                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
+                <svg className="w-4 h-4" viewBox="0 0 24 24">
                   <path
                     fill="#4285F4"
                     d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.66v3.05h3.9c2.28-2.1 3.64-5.2 3.64-9.15z"
@@ -423,18 +431,17 @@ export default function Login() {
                 <span>Continue with Google</span>
               </motion.button>
 
-              <div className="mt-3.5 text-center text-xs text-slate-500">
+              <div className="mt-3 text-center text-xs sm:text-sm text-slate-500">
                 Don't have an account?{' '}
-                <button
-                  type="button"
-                  onClick={() => alert('Navigate to sign up')}
-                  className="text-slate-900 font-semibold hover:underline cursor-pointer"
+                <Link
+                  to="/register"
+                  className="text-slate-900 font-semibold hover:underline"
                 >
                   Create one
-                </button>
+                </Link>
               </div>
 
-              <p className="text-[10px] text-slate-400 text-center leading-relaxed mt-3.5">
+              <p className="text-[11px] sm:text-xs text-slate-400 text-center leading-relaxed mt-2.5">
                 By continuing, you agree to our{' '}
                 <a href="#terms" className="text-slate-600 hover:underline">
                   Terms
