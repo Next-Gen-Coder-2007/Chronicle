@@ -27,4 +27,10 @@ export class UpdateMemoryDto {
   @IsString()
   @IsOptional()
   location?: string;
+
+  @IsOptional()
+  tags?: string[];
+
+  @IsOptional()
+  media?: any[];
 }

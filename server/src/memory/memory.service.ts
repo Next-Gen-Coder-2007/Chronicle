@@ -54,6 +54,34 @@ export class MemoryService {
     return this.memoryRepository.save(memory);
   }
 
+  async addMedia(
+    userId: string,
+    id: string,
+    mediaItem: { name: string; url?: string; type: string; size?: number; content?: string },
+  ): Promise<Memory> {
+    const memory = await this.findOne(userId, id);
+    const mediaList = memory.media || [];
+    const newMedia = {
+      id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+      name: mediaItem.name || 'Attachment',
+      url: mediaItem.url || '',
+      type: mediaItem.type || 'file',
+      size: mediaItem.size,
+      content: mediaItem.content,
+      uploadedAt: new Date().toISOString(),
+    };
+    memory.media = [...mediaList, newMedia];
+    return this.memoryRepository.save(memory);
+  }
+
+  async removeMedia(userId: string, id: string, mediaId: string): Promise<Memory> {
+    const memory = await this.findOne(userId, id);
+    if (memory.media) {
+      memory.media = memory.media.filter((m) => m.id !== mediaId);
+    }
+    return this.memoryRepository.save(memory);
+  }
+
   async remove(userId: string, id: string): Promise<{ success: boolean; message: string }> {
     const memory = await this.findOne(userId, id);
     await this.memoryRepository.remove(memory);

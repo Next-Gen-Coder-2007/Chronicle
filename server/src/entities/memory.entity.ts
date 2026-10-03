@@ -32,6 +32,20 @@ export class Memory {
   @Column({ nullable: true })
   location?: string;
 
+  @Column({ type: 'simple-array', nullable: true })
+  tags?: string[];
+
+  @Column({ type: 'simple-json', nullable: true })
+  media?: Array<{
+    id: string;
+    name: string;
+    url?: string;
+    type: string;
+    size?: number;
+    content?: string;
+    uploadedAt: string;
+  }>;
+
   @Column({ name: 'user_id' })
   userId: string;
 

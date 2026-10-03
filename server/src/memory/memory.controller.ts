@@ -105,6 +105,34 @@ export class MemoryController {
     };
   }
 
+  @Post(':id/media')
+  async addMedia(
+    @CurrentUser('id') userId: string,
+    @Param('id') id: string,
+    @Body() body: { name: string; url?: string; type: string; size?: number; content?: string },
+  ) {
+    const memory = await this.memoryService.addMedia(userId, id, body);
+    return {
+      success: true,
+      message: 'Attachment added successfully',
+      data: memory,
+    };
+  }
+
+  @Delete(':id/media/:mediaId')
+  async removeMedia(
+    @CurrentUser('id') userId: string,
+    @Param('id') id: string,
+    @Param('mediaId') mediaId: string,
+  ) {
+    const memory = await this.memoryService.removeMedia(userId, id, mediaId);
+    return {
+      success: true,
+      message: 'Media deleted successfully',
+      data: memory,
+    };
+  }
+
   @Delete(':id')
   async remove(@CurrentUser('id') userId: string, @Param('id') id: string) {
     return this.memoryService.remove(userId, id);
