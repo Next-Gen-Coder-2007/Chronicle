@@ -1,6 +1,8 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { motion, type Variants } from 'framer-motion'
+import { loginApi, getMeApi } from '../api'
+import { showToast } from '../utils/toast'
 
 import friendsImg from '../assets/memories/friends.jpg'
 import mountainsImg from '../assets/memories/mountains.jpg'
@@ -22,18 +24,34 @@ const containerVariants: Variants = {
 }
 
 export default function Login() {
+  const navigate = useNavigate()
   const [showPassword, setShowPassword] = useState(false)
   const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    getMeApi()
+      .then((data) => {
+        if (data?.success && data?.user) {
+          navigate('/')
+        }
+      })
+      .catch(() => {})
+  }, [navigate])
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
-    setTimeout(() => {
+
+    try {
+      await loginApi({ identifier, password })
+      showToast('Welcome back! Login successful.', 'success', 5000)
+      navigate('/')
+    } catch {
+    } finally {
       setIsLoading(false)
-      alert(`Welcome back! Signed in as ${identifier || 'User'}`)
-    }, 600)
+    }
   }
 
   return (
@@ -312,7 +330,7 @@ export default function Login() {
                       value={identifier}
                       onChange={(e) => setIdentifier(e.target.value)}
                       placeholder="Mobile number, username or email"
-                      className="w-full bg-transparent text-sm sm:text-[14.5px] text-slate-900 placeholder:text-slate-400 focus:outline-none"
+                      className="w-full h-full bg-transparent text-sm sm:text-[14.5px] text-slate-900 placeholder:text-slate-400 focus:outline-none"
                     />
                   </div>
                 </div>
@@ -340,7 +358,7 @@ export default function Login() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="Password"
-                      className="w-full bg-transparent text-sm sm:text-[14.5px] text-slate-900 placeholder:text-slate-400 focus:outline-none"
+                      className="w-full h-full bg-transparent text-sm sm:text-[14.5px] text-slate-900 placeholder:text-slate-400 focus:outline-none"
                     />
                     <button
                       type="button"

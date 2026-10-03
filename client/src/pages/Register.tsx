@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence, type Variants } from 'framer-motion'
+import { registerApi, getMeApi } from '../api'
+import { showToast } from '../utils/toast'
 
 import friendsImg from '../assets/memories/friends.jpg'
 import mountainsImg from '../assets/memories/mountains.jpg'
@@ -221,9 +223,18 @@ export default function Register() {
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
-  const [isSuccess, setIsSuccess] = useState(false)
 
   const dropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    getMeApi()
+      .then((data) => {
+        if (data?.success && data?.user) {
+          navigate('/')
+        }
+      })
+      .catch(() => {})
+  }, [navigate])
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -258,17 +269,27 @@ export default function Register() {
 
   const strength = getPasswordStrength(password)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
 
-    setTimeout(() => {
+    const fullPhoneNumber = phone.trim() ? `${selectedCountry.dial} ${phone.trim()}` : ''
+
+    try {
+      await registerApi({
+        fullName,
+        username,
+        phone: fullPhoneNumber,
+        email,
+        password,
+      })
+
+      showToast('Account created successfully! Welcome to Chronicle.', 'success', 5000)
+      navigate('/')
+    } catch {
+    } finally {
       setIsLoading(false)
-      setIsSuccess(true)
-      setTimeout(() => {
-        navigate('/login')
-      }, 1400)
-    }, 700)
+    }
   }
 
   const handleGoogleSignUp = () => {
@@ -302,19 +323,6 @@ export default function Register() {
                 </p>
               </div>
 
-              {isSuccess && (
-                <motion.div
-                  initial={{ opacity: 0, y: -8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="mb-3 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs sm:text-sm flex items-center gap-2.5"
-                >
-                  <svg className="w-4 h-4 text-emerald-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                  <span>Account created successfully! Redirecting...</span>
-                </motion.div>
-              )}
-
               <form onSubmit={handleSubmit} className="space-y-3">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
@@ -340,7 +348,7 @@ export default function Register() {
                         value={fullName}
                         onChange={(e) => setFullName(e.target.value)}
                         placeholder="John Doe"
-                        className="w-full bg-transparent text-sm sm:text-[14.5px] text-slate-900 placeholder:text-slate-400 focus:outline-none"
+                        className="w-full h-full bg-transparent text-sm sm:text-[14.5px] text-slate-900 placeholder:text-slate-400 focus:outline-none"
                       />
                     </div>
                   </div>
@@ -357,7 +365,7 @@ export default function Register() {
                         value={username}
                         onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9._]/g, ''))}
                         placeholder="johndoe"
-                        className="w-full bg-transparent text-sm sm:text-[14.5px] text-slate-900 placeholder:text-slate-400 focus:outline-none"
+                        className="w-full h-full bg-transparent text-sm sm:text-[14.5px] text-slate-900 placeholder:text-slate-400 focus:outline-none"
                       />
                     </div>
                   </div>
@@ -492,7 +500,7 @@ export default function Register() {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="name@example.com"
-                      className="w-full bg-transparent text-sm sm:text-[14.5px] text-slate-900 placeholder:text-slate-400 focus:outline-none"
+                      className="w-full h-full bg-transparent text-sm sm:text-[14.5px] text-slate-900 placeholder:text-slate-400 focus:outline-none"
                     />
                   </div>
                 </div>
@@ -520,7 +528,7 @@ export default function Register() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="Create a strong password"
-                      className="w-full bg-transparent text-sm sm:text-[14.5px] text-slate-900 placeholder:text-slate-400 focus:outline-none"
+                      className="w-full h-full bg-transparent text-sm sm:text-[14.5px] text-slate-900 placeholder:text-slate-400 focus:outline-none"
                     />
                     <button
                       type="button"
