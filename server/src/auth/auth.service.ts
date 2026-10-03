@@ -9,7 +9,7 @@ import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import bcrypt from 'bcryptjs';
 import { User } from '../entities/user.entity.js';
-import { RegisterDto, LoginDto } from '../dto/auth.dto.js';
+import { RegisterDto, LoginDto } from './dto/auth.dto.js';
 
 @Injectable()
 export class AuthService {
@@ -17,7 +17,7 @@ export class AuthService {
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
     private readonly jwtService: JwtService,
-  ) {}
+  ) { }
 
   async register(registerDto: RegisterDto): Promise<{ user: Partial<User>; accessToken: string }> {
     const email = registerDto.email.toLowerCase().trim();

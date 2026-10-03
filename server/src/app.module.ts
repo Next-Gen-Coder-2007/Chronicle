@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from './auth/auth.module.js';
+import { MemoryModule } from './memory/memory.module.js';
 
 const dbUrl = process.env.DATABASE_URL || 'sqlite://chronicle.sqlite';
 const isPostgres = dbUrl.startsWith('postgres://') || dbUrl.startsWith('postgresql://');
@@ -28,6 +29,7 @@ const isPostgres = dbUrl.startsWith('postgres://') || dbUrl.startsWith('postgres
           },
     ),
     AuthModule,
+    MemoryModule,
   ],
 })
 export class AppModule {}

@@ -10,13 +10,13 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { AuthService } from './auth.service.js';
-import { RegisterDto, LoginDto } from '../dto/auth.dto.js';
+import { RegisterDto, LoginDto } from './dto/auth.dto.js';
 import { JwtAuthGuard, CurrentUser } from './jwt.strategy.js';
 import { User } from '../entities/user.entity.js';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService) { }
 
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
