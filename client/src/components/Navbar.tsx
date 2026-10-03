@@ -1,22 +1,35 @@
-import { Menu, LogOut } from 'lucide-react'
-import type { User } from '../api'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { Menu, LogOut, Plus } from 'lucide-react'
+import { useAppSelector, useAppDispatch, openCreateModal, logoutUser } from '../store'
+import { showToast } from '../utils/toast'
 
 interface NavbarProps {
-  user: User
-  onLogout: () => void
   onToggleSidebar?: () => void
-  title?: string
 }
 
-export default function Navbar({
-  user,
-  onLogout,
-  onToggleSidebar,
-  title = 'Home',
-}: NavbarProps) {
+export default function Navbar({ onToggleSidebar }: NavbarProps) {
+  const user = useAppSelector((state) => state.auth.user)
+  const dispatch = useAppDispatch()
+  const location = useLocation()
+  const navigate = useNavigate()
+
+  const getPageTitle = () => {
+    const path = location.pathname
+    if (path.startsWith('/memories')) return 'Memories'
+    if (path.startsWith('/settings')) return 'Settings'
+    return 'Home'
+  }
+
+  const handleLogout = async () => {
+    await dispatch(logoutUser())
+    showToast('Logged out successfully', 'success', 5000)
+    navigate('/login')
+  }
+
+  if (!user) return null
+
   return (
-    <header className="h-16 w-full bg-white border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30">
-      {/* Left: Mobile Menu & Page Title */}
+    <header className="h-16 w-full bg-white border-b border-slate-200/80 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 shrink-0">
       <div className="flex items-center gap-3">
         {onToggleSidebar && (
           <button
@@ -27,15 +40,22 @@ export default function Navbar({
             <Menu className="w-5 h-5" />
           </button>
         )}
-        <h1 className="text-lg font-semibold text-slate-900 capitalize">
-          {title}
+        <h1 className="text-lg font-bold text-slate-900 capitalize tracking-tight">
+          {getPageTitle()}
         </h1>
       </div>
 
-      {/* Right: User Info & Sign Out */}
       <div className="flex items-center gap-3">
+        <button
+          onClick={() => dispatch(openCreateModal())}
+          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 active:bg-indigo-200/80 text-indigo-600 rounded-xl text-xs sm:text-sm font-semibold transition-colors cursor-pointer border border-indigo-100"
+        >
+          <Plus className="w-4 h-4 stroke-[2.5]" />
+          <span>Create Memory</span>
+        </button>
+
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold uppercase">
+          <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold uppercase shadow-xs">
             {user.fullName ? user.fullName.charAt(0) : user.username.charAt(0)}
           </div>
           <span className="text-sm font-medium text-slate-700 hidden sm:inline-block">
@@ -44,7 +64,7 @@ export default function Navbar({
         </div>
 
         <button
-          onClick={onLogout}
+          onClick={handleLogout}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs sm:text-sm font-medium text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer border border-transparent hover:border-rose-100"
         >
           <LogOut className="w-4 h-4" />
