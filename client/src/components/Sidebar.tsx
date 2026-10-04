@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Home, Image, Settings, LogOut } from 'lucide-react'
+import { Home, Image, Settings, LogOut, Sparkles } from 'lucide-react'
 import { useAppSelector, useAppDispatch, logoutUser } from '../store'
 
 interface SidebarProps {
@@ -20,6 +20,14 @@ const navItems = [
     path: '/memories',
     label: 'Memories',
     icon: Image,
+    activeClass: 'bg-indigo-50 text-indigo-700 font-semibold border-l-4 border-indigo-600',
+    activeIcon: 'text-indigo-600',
+    hoverClass: 'hover:bg-slate-50 hover:text-slate-900',
+  },
+  {
+    path: '/chat',
+    label: 'AI Chat',
+    icon: Sparkles,
     activeClass: 'bg-indigo-50 text-indigo-700 font-semibold border-l-4 border-indigo-600',
     activeIcon: 'text-indigo-600',
     hoverClass: 'hover:bg-slate-50 hover:text-slate-900',

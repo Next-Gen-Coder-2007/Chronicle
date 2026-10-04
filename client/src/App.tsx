@@ -7,6 +7,7 @@ import Home from './pages/Home'
 import Memories from './pages/Memories'
 import MemoryDetail from './pages/MemoryDetail'
 import Settings from './pages/Settings'
+import Chat from './pages/Chat'
 import StatusToast from './components/StatusToast'
 
 export default function App() {
@@ -24,6 +25,7 @@ export default function App() {
           <Route path="/home" element={<Navigate to="/" replace />} />
           <Route path="/memories" element={<Memories />} />
           <Route path="/memories/:id" element={<MemoryDetail />} />
+          <Route path="/chat" element={<Chat />} />
           <Route path="/settings" element={<Settings />} />
         </Route>
 
