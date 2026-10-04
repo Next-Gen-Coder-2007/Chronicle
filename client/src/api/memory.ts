@@ -111,3 +111,32 @@ export const updateMemoryMediaApi = async (
   const response = await api.patch<ApiResponse<Memory>>(`/memories/${id}/media/${mediaId}`, data)
   return response.data
 }
+
+export interface MemorySummary {
+  memoryId: string
+  title: string
+  overview: string
+  importantEvents: string[]
+  placesVisited: string[]
+  peopleMentioned: string[]
+  keyConversations: string[]
+  importantDates: string[]
+  activities: string[]
+  relatedFiles: string[]
+}
+
+export const getMemorySummaryApi = async (id: string): Promise<ApiResponse<MemorySummary>> => {
+  const response = await api.get<ApiResponse<MemorySummary>>(`/memories/${id}/summary`)
+  return response.data
+}
+
+export const reprocessDocumentApi = async (documentId: string): Promise<ApiResponse<any>> => {
+  const response = await api.post<ApiResponse<any>>(`/documents/${documentId}/reprocess`)
+  return response.data
+}
+
+export const getDocumentStatusApi = async (documentId: string): Promise<ApiResponse<any>> => {
+  const response = await api.get<ApiResponse<any>>(`/documents/${documentId}/status`)
+  return response.data
+}
+

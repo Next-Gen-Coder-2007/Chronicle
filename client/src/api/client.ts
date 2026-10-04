@@ -40,3 +40,17 @@ api.interceptors.response.use(
     return Promise.reject(error)
   },
 )
+
+export async function fetchFileBlob(
+  memoryId: string,
+  fileId: string,
+): Promise<{ blob: Blob; url: string; mimeType: string }> {
+  const response = await api.get(`/memories/${memoryId}/files/${fileId}`, {
+    responseType: 'blob',
+  })
+  const blob = response.data
+  const mimeType = (response.headers['content-type'] as string) || blob.type || 'application/octet-stream'
+  const url = URL.createObjectURL(blob)
+  return { blob, url, mimeType }
+}
+

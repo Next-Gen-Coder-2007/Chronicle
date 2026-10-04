@@ -8,13 +8,22 @@ export interface ChatMessage {
 export interface ChatSourceCitation {
   id: string
   documentId: string
+  documentName?: string
   fileId?: string
   filename?: string
   mimeType?: string
   memoryId?: string
   chunkIndex: number
   similarity: number
+  relevanceScore?: number
   content: string
+  page?: number
+  pageNumber?: number
+  startTime?: number
+  startTimestamp?: number
+  endTime?: number
+  endTimestamp?: number
+  contentType?: string
 }
 
 export interface ChatResponseData {

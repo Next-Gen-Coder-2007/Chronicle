@@ -40,7 +40,13 @@ import {
   updateMemory,
   updateMemoryMedia,
 } from '../store'
-import { getMemoryByIdApi, type Memory, type MemoryMedia } from '../api'
+import {
+  getMemoryByIdApi,
+  getMemorySummaryApi,
+  type Memory,
+  type MemoryMedia,
+  type MemorySummary,
+} from '../api'
 import { showToast } from '../utils/toast'
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024
@@ -147,6 +153,28 @@ export default function MemoryDetail() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [noteText, setNoteText] = useState('')
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  const [summary, setSummary] = useState<MemorySummary | null>(null)
+  const [isSummaryLoading, setIsSummaryLoading] = useState(false)
+  const [showSummaryModal, setShowSummaryModal] = useState(false)
+
+  const handleOpenSummary = async () => {
+    if (!memory) return
+    setShowSummaryModal(true)
+    if (!summary) {
+      setIsSummaryLoading(true)
+      try {
+        const res = await getMemorySummaryApi(memory.id)
+        if (res.success && res.data) {
+          setSummary(res.data)
+        }
+      } catch {
+        showToast('Failed to generate memory summary', 'error')
+      } finally {
+        setIsSummaryLoading(false)
+      }
+    }
+  }
 
   useEffect(() => {
     if (!id) return
@@ -565,6 +593,14 @@ export default function MemoryDetail() {
         </Link>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleOpenSummary}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 transition-all shadow-2xs cursor-pointer"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+            <span>AI Summary</span>
+          </button>
+
           <Link
             to={`/chat?memoryId=${memory.id}`}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 transition-all shadow-2xs"
@@ -1510,6 +1546,155 @@ export default function MemoryDetail() {
           </div>
         )}
       </div>
+
+      {showSummaryModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl max-w-2xl w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[85vh]"
+          >
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3 bg-emerald-50/50 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-emerald-100 text-emerald-700 shrink-0">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    AI Memory Summary
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Grounded synthesis across all attached documents & media
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowSummaryModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div
+              data-lenis-prevent="true"
+              className="p-5 overflow-y-auto flex-1 space-y-4 text-xs text-slate-800 leading-relaxed bg-white"
+            >
+              {isSummaryLoading ? (
+                <div className="py-12 flex flex-col items-center justify-center space-y-3">
+                  <Loader2 className="w-7 h-7 text-emerald-600 animate-spin" />
+                  <p className="text-xs font-semibold text-slate-500">
+                    Synthesizing multimodal knowledge...
+                  </p>
+                </div>
+              ) : summary ? (
+                <div className="space-y-4">
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/80">
+                    <h4 className="font-bold text-slate-700 text-xs mb-1 uppercase tracking-wider">
+                      Overview
+                    </h4>
+                    <p className="text-slate-800 text-sm leading-relaxed">
+                      {summary.overview}
+                    </p>
+                  </div>
+
+                  {summary.importantEvents?.length > 0 && (
+                    <div>
+                      <h4 className="font-bold text-slate-700 text-xs mb-1.5 uppercase tracking-wider">
+                        Important Events
+                      </h4>
+                      <ul className="list-disc pl-5 space-y-1 text-slate-700">
+                        {summary.importantEvents.map((evt, idx) => (
+                          <li key={idx}>{evt}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {summary.placesVisited?.length > 0 && (
+                    <div>
+                      <h4 className="font-bold text-slate-700 text-xs mb-1.5 uppercase tracking-wider">
+                        Places & Locations
+                      </h4>
+                      <div className="flex flex-wrap gap-1.5">
+                        {summary.placesVisited.map((place, idx) => (
+                          <span
+                            key={idx}
+                            className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 font-medium text-[11px] border border-blue-200/60"
+                          >
+                            {place}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {summary.peopleMentioned?.length > 0 && (
+                    <div>
+                      <h4 className="font-bold text-slate-700 text-xs mb-1.5 uppercase tracking-wider">
+                        People & Participants
+                      </h4>
+                      <div className="flex flex-wrap gap-1.5">
+                        {summary.peopleMentioned.map((person, idx) => (
+                          <span
+                            key={idx}
+                            className="px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 font-medium text-[11px] border border-indigo-200/60"
+                          >
+                            {person}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {summary.keyConversations?.length > 0 && (
+                    <div>
+                      <h4 className="font-bold text-slate-700 text-xs mb-1.5 uppercase tracking-wider">
+                        Key Conversations & Topics
+                      </h4>
+                      <ul className="list-disc pl-5 space-y-1 text-slate-700">
+                        {summary.keyConversations.map((topic, idx) => (
+                          <li key={idx}>{topic}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {summary.activities?.length > 0 && (
+                    <div>
+                      <h4 className="font-bold text-slate-700 text-xs mb-1.5 uppercase tracking-wider">
+                        Activities
+                      </h4>
+                      <div className="flex flex-wrap gap-1.5">
+                        {summary.activities.map((act, idx) => (
+                          <span
+                            key={idx}
+                            className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 font-medium text-[11px] border border-emerald-200/60"
+                          >
+                            {act}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-center py-8 text-slate-400">
+                  No summary available for this memory yet.
+                </p>
+              )}
+            </div>
+
+            <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-end shrink-0">
+              <button
+                onClick={() => setShowSummaryModal(false)}
+                className="px-4 py-1.5 font-semibold text-xs bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 rounded-xl transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
