@@ -100,3 +100,12 @@ export const deleteMemoryMediaApi = async (
   const response = await api.delete<ApiResponse<Memory>>(`/memories/${id}/media/${mediaId}`)
   return response.data
 }
+
+export const updateMemoryMediaApi = async (
+  id: string,
+  mediaId: string,
+  data: { name?: string; content?: string },
+): Promise<ApiResponse<Memory>> => {
+  const response = await api.patch<ApiResponse<Memory>>(`/memories/${id}/media/${mediaId}`, data)
+  return response.data
+}

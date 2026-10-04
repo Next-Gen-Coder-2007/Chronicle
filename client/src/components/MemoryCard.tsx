@@ -36,17 +36,19 @@ export default function MemoryCard({
     return []
   }, [memory.tags])
 
-  // Find the first image to use as cover image
   const coverImage = useMemo(() => {
     if (!memory.media || memory.media.length === 0) return null
-    return memory.media.find(
+    const images = memory.media.filter(
       (item) =>
         item.url &&
         (item.type?.startsWith('image/') ||
           item.url.startsWith('data:image') ||
           /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(item.name || '')),
     )
-  }, [memory.media])
+    if (images.length === 0) return null
+    const randomIndex = Math.floor(Math.random() * images.length)
+    return images[randomIndex]
+  }, [memory.media, memory.id])
 
   return (
     <div
@@ -58,6 +60,7 @@ export default function MemoryCard({
         <div className="relative w-full h-44 bg-slate-100 overflow-hidden shrink-0 border-b border-slate-100">
           <img
             src={coverImage.url}
+            crossOrigin="use-credentials"
             alt={memory.title}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
           />

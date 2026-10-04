@@ -19,6 +19,12 @@ import {
   Paperclip,
   Copy,
   Check,
+  Video,
+  Shuffle,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Pencil,
 } from 'lucide-react'
 import {
   useAppSelector,
@@ -28,9 +34,20 @@ import {
   uploadMemoryMedia,
   deleteMemoryMedia,
   updateMemory,
+  updateMemoryMedia,
 } from '../store'
 import { getMemoryByIdApi, type Memory, type MemoryMedia } from '../api'
 import { showToast } from '../utils/toast'
+
+const MAX_FILE_SIZE = 5 * 1024 * 1024
+const MAX_VIDEO_SIZE = 20 * 1024 * 1024
+
+const isVideoAttachment = (type?: string, name?: string, url?: string): boolean => {
+  if (type && type.startsWith('video/')) return true
+  if (url && url.startsWith('data:video')) return true
+  if (name && /\.(mp4|webm|mov|mkv|avi|wmv|flv|m4v)$/i.test(name)) return true
+  return false
+}
 
 export default function MemoryDetail() {
   const { id } = useParams<{ id: string }>()
@@ -43,16 +60,13 @@ export default function MemoryDetail() {
   const [isUploading, setIsUploading] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
 
-  // Tag editing state
   const [newTagInput, setNewTagInput] = useState('')
   const [isAddingTag, setIsAddingTag] = useState(false)
 
-  // Simple Upload Form State (File + Optional Accompanying Text)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [noteText, setNoteText] = useState('')
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
-  // Find memory from store or fetch from API
   useEffect(() => {
     if (!id) return
 
@@ -81,7 +95,6 @@ export default function MemoryDetail() {
     }
   }, [id, memories, navigate])
 
-  // Extract clean tags (no #)
   const tagsList = useMemo(() => {
     if (!memory?.tags) return []
     if (Array.isArray(memory.tags)) {
@@ -98,9 +111,11 @@ export default function MemoryDetail() {
     return []
   }, [memory?.tags])
 
-  // Helper to determine media type
-  const getItemType = (item: MemoryMedia): 'photo' | 'pdf' | 'note' | 'document' => {
-    if ((item.type === 'note' || item.content) && !item.url) return 'note'
+  const getItemType = (item: MemoryMedia): 'photo' | 'video' | 'pdf' | 'note' | 'document' => {
+    if (item.type === 'note' || (!item.url && item.content)) return 'note'
+    if (isVideoAttachment(item.type, item.name, item.url)) {
+      return 'video'
+    }
     if (
       item.type === 'application/pdf' ||
       item.type?.includes('pdf') ||
@@ -118,10 +133,88 @@ export default function MemoryDetail() {
     return 'document'
   }
 
-  // Media list
   const mediaList: MemoryMedia[] = memory?.media || []
 
-  // Handle status toggle
+  type SortBy = 'random' | 'name' | 'type' | 'size' | 'date'
+  type SortOrder = 'asc' | 'desc'
+
+  const [sortBy, setSortBy] = useState<SortBy>('random')
+  const [sortOrder, setSortOrder] = useState<SortOrder>('asc')
+  const [shuffleKey, setShuffleKey] = useState(1)
+  const randomScoresRef = useRef<Map<string, number>>(new Map())
+
+  const [editingMediaId, setEditingMediaId] = useState<string | null>(null)
+  const [editingName, setEditingName] = useState('')
+  const [isRenaming, setIsRenaming] = useState(false)
+
+  const handleStartRename = (item: MemoryMedia) => {
+    setEditingMediaId(item.id)
+    setEditingName(item.name || '')
+  }
+
+  const handleCancelRename = () => {
+    setEditingMediaId(null)
+    setEditingName('')
+  }
+
+  const handleSaveRename = async (mediaId: string) => {
+    if (!memory || !editingName.trim()) return
+    setIsRenaming(true)
+    try {
+      const result = await dispatch(
+        updateMemoryMedia({
+          id: memory.id,
+          mediaId,
+          data: { name: editingName.trim() },
+        }),
+      )
+      if (updateMemoryMedia.fulfilled.match(result)) {
+        setMemory(result.payload)
+        setEditingMediaId(null)
+        setEditingName('')
+      }
+    } finally {
+      setIsRenaming(false)
+    }
+  }
+
+  const handleReshuffle = () => {
+    randomScoresRef.current.clear()
+    setShuffleKey((prev) => prev + 1)
+  }
+
+  const sortedMediaList = useMemo(() => {
+    const list = [...mediaList]
+    if (sortBy === 'random') {
+      list.forEach((item) => {
+        if (!randomScoresRef.current.has(item.id)) {
+          randomScoresRef.current.set(item.id, Math.random())
+        }
+      })
+      return list.sort((a, b) => {
+        const scoreA = randomScoresRef.current.get(a.id) ?? 0
+        const scoreB = randomScoresRef.current.get(b.id) ?? 0
+        return scoreA - scoreB
+      })
+    }
+
+    return list.sort((a, b) => {
+      let cmp = 0
+      if (sortBy === 'name') {
+        cmp = (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' })
+      } else if (sortBy === 'type') {
+        cmp = getItemType(a).localeCompare(getItemType(b))
+      } else if (sortBy === 'size') {
+        cmp = (a.size || 0) - (b.size || 0)
+      } else if (sortBy === 'date') {
+        const dateA = a.uploadedAt ? new Date(a.uploadedAt).getTime() : 0
+        const dateB = b.uploadedAt ? new Date(b.uploadedAt).getTime() : 0
+        cmp = dateA - dateB
+      }
+      return sortOrder === 'asc' ? cmp : -cmp
+    })
+  }, [mediaList, sortBy, sortOrder, shuffleKey])
+
   const handleToggleStatus = async () => {
     if (!memory) return
     const nextStatus = memory.status === 'ongoing' ? 'completed' : 'ongoing'
@@ -142,7 +235,6 @@ export default function MemoryDetail() {
     }
   }
 
-  // Handle delete memory
   const handleDeleteMemory = async () => {
     if (!memory) return
     if (window.confirm(`Are you sure you want to delete "${memory.title}"?`)) {
@@ -151,7 +243,6 @@ export default function MemoryDetail() {
     }
   }
 
-  // Handle adding a new tag
   const handleAddTag = async () => {
     if (!memory) return
     const clean = newTagInput.trim().replace(/^#+/, '')
@@ -179,7 +270,6 @@ export default function MemoryDetail() {
     }
   }
 
-  // Handle removing a tag
   const handleRemoveTag = async (tagToRemove: string) => {
     if (!memory) return
     const updatedTags = tagsList.filter((t) => t !== tagToRemove)
@@ -194,14 +284,25 @@ export default function MemoryDetail() {
     }
   }
 
-  // Handle file selection
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      setSelectedFile(e.target.files[0])
+      const file = e.target.files[0]
+      const isVideo = isVideoAttachment(file.type, file.name)
+      const maxSize = isVideo ? MAX_VIDEO_SIZE : MAX_FILE_SIZE
+      const limitLabel = isVideo ? '20 MB' : '5 MB'
+
+      if (file.size > maxSize) {
+        showToast(
+          `File size exceeds limit (${formatBytes(file.size)}). Max allowed is ${limitLabel}${!isVideo ? ' (up to 20 MB for videos)' : ''}.`,
+          'error',
+        )
+        if (fileInputRef.current) fileInputRef.current.value = ''
+        return
+      }
+      setSelectedFile(file)
     }
   }
 
-  // Handle submitting the upload form (File with optional text, or text note alone)
   const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!memory) return
@@ -214,6 +315,19 @@ export default function MemoryDetail() {
     setIsUploading(true)
     try {
       if (selectedFile) {
+        const isVideo = isVideoAttachment(selectedFile.type, selectedFile.name)
+        const maxSize = isVideo ? MAX_VIDEO_SIZE : MAX_FILE_SIZE
+        const limitLabel = isVideo ? '20 MB' : '5 MB'
+
+        if (selectedFile.size > maxSize) {
+          showToast(
+            `File size exceeds limit (${formatBytes(selectedFile.size)}). Max allowed is ${limitLabel}${!isVideo ? ' (up to 20 MB for videos)' : ''}.`,
+            'error',
+          )
+          setIsUploading(false)
+          return
+        }
+
         const dataUrl = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader()
           reader.onload = () => resolve(reader.result as string)
@@ -224,6 +338,12 @@ export default function MemoryDetail() {
         let fileType = selectedFile.type || 'application/octet-stream'
         if (selectedFile.name.toLowerCase().endsWith('.pdf')) {
           fileType = 'application/pdf'
+        } else if (selectedFile.name.toLowerCase().endsWith('.mp4')) {
+          fileType = 'video/mp4'
+        } else if (selectedFile.name.toLowerCase().endsWith('.webm')) {
+          fileType = 'video/webm'
+        } else if (selectedFile.name.toLowerCase().endsWith('.mov')) {
+          fileType = 'video/quicktime'
         }
 
         const result = await dispatch(
@@ -270,7 +390,6 @@ export default function MemoryDetail() {
     }
   }
 
-  // Handle delete media
   const handleDeleteMedia = async (mediaId: string) => {
     if (!memory) return
     if (window.confirm('Delete this item?')) {
@@ -283,7 +402,6 @@ export default function MemoryDetail() {
     }
   }
 
-  // Handle copy text
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text)
     setCopiedId(id)
@@ -291,7 +409,6 @@ export default function MemoryDetail() {
     setTimeout(() => setCopiedId(null), 2000)
   }
 
-  // Helper format bytes
   const formatBytes = (bytes?: number) => {
     if (!bytes) return ''
     if (bytes < 1024) return `${bytes} B`
@@ -314,7 +431,6 @@ export default function MemoryDetail() {
 
   return (
     <div className="w-full max-w-7xl mx-auto space-y-4 pb-6">
-      {/* Top Navigation & Actions Bar */}
       <div className="flex items-center justify-between gap-3">
         <Link
           to="/memories"
@@ -343,9 +459,7 @@ export default function MemoryDetail() {
         </div>
       </div>
 
-      {/* Main Memory Details Card (Optimized padding & gaps) */}
       <div className="bg-white rounded-2xl border border-slate-200/90 p-4 sm:p-5 lg:p-6 shadow-xs space-y-4">
-        {/* Title, Dates & Status */}
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 pb-3.5 border-b border-slate-100">
           <div className="space-y-1.5">
             <div className="flex items-center gap-2">
@@ -399,7 +513,6 @@ export default function MemoryDetail() {
           </div>
         </div>
 
-        {/* Tags Row */}
         <div>
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 inline-flex items-center gap-1 mr-1">
@@ -458,7 +571,6 @@ export default function MemoryDetail() {
           </div>
         </div>
 
-        {/* Description */}
         <div>
           <p className="text-xs sm:text-sm text-slate-700 leading-relaxed whitespace-pre-line bg-slate-50/70 p-3 sm:p-3.5 rounded-xl border border-slate-100">
             {memory.description}
@@ -466,7 +578,6 @@ export default function MemoryDetail() {
         </div>
       </div>
 
-      {/* Upload & Collage Section (Optimized layout & spacing) */}
       <div className="bg-white rounded-2xl border border-slate-200/90 p-4 sm:p-5 lg:p-6 shadow-xs space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -483,13 +594,11 @@ export default function MemoryDetail() {
           </span>
         </div>
 
-        {/* Compact Upload Bar: File + Text input */}
         <form
           onSubmit={handleUploadSubmit}
           className="p-3 sm:p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2.5"
         >
           <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
-            {/* File Selector Button */}
             <div>
               <input
                 type="file"
@@ -509,7 +618,6 @@ export default function MemoryDetail() {
               </button>
             </div>
 
-            {/* Selected File Indicator */}
             {selectedFile ? (
               <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-indigo-50 border border-indigo-200 text-xs font-medium text-indigo-800">
                 <Paperclip className="w-3 h-3 text-indigo-600 shrink-0" />
@@ -528,12 +636,11 @@ export default function MemoryDetail() {
               </div>
             ) : (
               <span className="text-[11px] text-slate-400">
-                Pick a photo, PDF, or document (or leave blank to create a text note)
+                Pick a photo, video (up to 20MB), PDF, or doc (up to 5MB), or write a note
               </span>
             )}
           </div>
 
-          {/* Text / Note Input Accompanying Document */}
           <div>
             <textarea
               rows={2}
@@ -544,7 +651,6 @@ export default function MemoryDetail() {
             />
           </div>
 
-          {/* Submit Button */}
           <div className="flex items-center justify-end">
             <button
               type="submit"
@@ -566,57 +672,412 @@ export default function MemoryDetail() {
           </div>
         </form>
 
-        {/* Professional Collage Grid (Tight masonry columns, responsive up to 4 cols) */}
         {mediaList.length > 0 ? (
-          <div className="columns-1 sm:columns-2 md:columns-3 xl:columns-4 gap-3.5 [column-fill:_balance]">
-            {mediaList.map((item) => {
-              const itemType = getItemType(item)
-
-              // 1. Photo Collage Card
-              if (itemType === 'photo' && item.url) {
-                return (
-                  <div
-                    key={item.id}
-                    className="break-inside-avoid mb-3.5 bg-white rounded-xl border border-slate-200/90 overflow-hidden shadow-2xs hover:shadow-md hover:border-slate-300 transition-all duration-300 group flex flex-col"
+          <div className="space-y-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-2.5 px-3 py-2 rounded-xl bg-slate-50/80 border border-slate-200">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-xs font-semibold text-slate-500 flex items-center gap-1 mr-1">
+                  <ArrowUpDown className="w-3.5 h-3.5" />
+                  Sort:
+                </span>
+                {(
+                  [
+                    { key: 'random', label: 'Random' },
+                    { key: 'name', label: 'Name' },
+                    { key: 'type', label: 'Type' },
+                    { key: 'size', label: 'Size' },
+                    { key: 'date', label: 'Date' },
+                  ] as const
+                ).map((opt) => (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => setSortBy(opt.key)}
+                    className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                      sortBy === opt.key
+                        ? 'bg-indigo-600 text-white shadow-2xs'
+                        : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                    }`}
                   >
-                    {/* Photo Visual Frame */}
-                    <div className="relative overflow-hidden bg-slate-100">
-                      <img
-                        src={item.url}
-                        alt={item.name}
-                        className="w-full h-auto object-cover max-h-80 group-hover:scale-[1.02] transition-transform duration-300"
-                      />
-                      <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-slate-900/75 backdrop-blur-xs text-white">
-                        Photo
-                      </span>
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                {sortBy === 'random' ? (
+                  <button
+                    type="button"
+                    onClick={handleReshuffle}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-indigo-600 shadow-2xs transition-colors cursor-pointer"
+                    title="Reshuffle ordering"
+                  >
+                    <Shuffle className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Reshuffle</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'))}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-indigo-600 shadow-2xs transition-colors cursor-pointer"
+                    title={`Sort ${sortOrder === 'asc' ? 'Ascending' : 'Descending'} (click to toggle)`}
+                  >
+                    {sortOrder === 'asc' ? (
+                      <>
+                        <ArrowUp className="w-3.5 h-3.5 text-indigo-600" />
+                        <span>Ascending</span>
+                      </>
+                    ) : (
+                      <>
+                        <ArrowDown className="w-3.5 h-3.5 text-indigo-600" />
+                        <span>Descending</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="columns-1 sm:columns-2 md:columns-3 xl:columns-4 gap-3.5 [column-fill:_balance]">
+              {sortedMediaList.map((item) => {
+                const itemType = getItemType(item)
+
+                if (itemType === 'photo' && item.url) {
+                  return (
+                    <div
+                      key={item.id}
+                      className="break-inside-avoid mb-3.5 bg-white rounded-xl border border-slate-200/90 overflow-hidden shadow-2xs hover:shadow-md hover:border-slate-300 transition-all duration-300 group flex flex-col"
+                    >
+                      <div className="relative overflow-hidden bg-slate-100">
+                        <img
+                          src={item.url}
+                          crossOrigin="use-credentials"
+                          alt={item.name}
+                          className="w-full h-auto object-cover max-h-80 group-hover:scale-[1.02] transition-transform duration-300"
+                        />
+                        <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-slate-900/75 backdrop-blur-xs text-white">
+                          Photo
+                        </span>
+                      </div>
+
+                      <div className="p-3 space-y-2.5 flex-1 flex flex-col justify-between">
+                        {item.content ? (
+                          <p className="text-xs text-slate-700 whitespace-pre-line leading-relaxed">
+                            {item.content}
+                          </p>
+                        ) : null}
+
+                        <div className="pt-2 border-t border-slate-100">
+                          {editingMediaId === item.id ? (
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="text"
+                                value={editingName}
+                                onChange={(e) => setEditingName(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleSaveRename(item.id)
+                                  if (e.key === 'Escape') handleCancelRename()
+                                }}
+                                autoFocus
+                                className="flex-1 min-w-0 px-2 py-0.5 text-xs rounded border border-indigo-400 bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                              />
+                              <button
+                                type="button"
+                                disabled={isRenaming || !editingName.trim()}
+                                onClick={() => handleSaveRename(item.id)}
+                                className="p-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer disabled:opacity-50"
+                                title="Save name"
+                              >
+                                {isRenaming ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isRenaming}
+                                onClick={handleCancelRename}
+                                className="p-1 rounded bg-slate-200 hover:bg-slate-300 text-slate-700 cursor-pointer"
+                                title="Cancel"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-between text-xs text-slate-400">
+                              <div className="min-w-0 pr-1">
+                                <p className="font-semibold text-slate-700 truncate text-[11px]">
+                                  {item.name}
+                                </p>
+                                <p className="text-[10px] text-slate-400">
+                                  {item.size ? formatBytes(item.size) : ''}
+                                  {item.uploadedAt ? ` • ${new Date(item.uploadedAt).toLocaleDateString()}` : ''}
+                                </p>
+                              </div>
+
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartRename(item)}
+                                  title="Rename photo"
+                                  className="p-1 rounded-md text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors cursor-pointer"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+
+                                {item.content && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopy(item.content || '', item.id)}
+                                    title="Copy caption"
+                                    className="p-1 rounded-md text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer"
+                                  >
+                                    {copiedId === item.id ? (
+                                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                    ) : (
+                                      <Copy className="w-3.5 h-3.5" />
+                                    )}
+                                  </button>
+                                )}
+
+                                <a
+                                  href={item.url}
+                                  download={item.name}
+                                  title="Download photo"
+                                  className="p-1 rounded-md text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors cursor-pointer"
+                                >
+                                  <Download className="w-3.5 h-3.5" />
+                                </a>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteMedia(item.id)}
+                                  title="Delete item"
+                                  className="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
+                  )
+                }
 
-                    {/* Accompanying Caption / Note */}
-                    <div className="p-3 space-y-2.5 flex-1 flex flex-col justify-between">
-                      {item.content ? (
-                        <p className="text-xs text-slate-700 whitespace-pre-line leading-relaxed">
-                          {item.content}
-                        </p>
-                      ) : null}
+                if (itemType === 'video' && item.url) {
+                  return (
+                    <div
+                      key={item.id}
+                      className="break-inside-avoid mb-3.5 bg-white rounded-xl border border-slate-200/90 overflow-hidden shadow-2xs hover:shadow-md hover:border-slate-300 transition-all duration-300 group flex flex-col"
+                    >
+                      <div className="relative overflow-hidden bg-slate-950">
+                        <video
+                          src={item.url}
+                          crossOrigin="use-credentials"
+                          controls
+                          playsInline
+                          preload="metadata"
+                          className="w-full h-auto max-h-80 bg-black block"
+                        />
+                        <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-violet-600/90 backdrop-blur-xs text-white flex items-center gap-1 shadow-xs pointer-events-none">
+                          <Video className="w-3 h-3" />
+                          Video
+                        </span>
+                      </div>
 
-                      {/* Card Footer: Metadata & Actions */}
-                      <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400">
-                        <div className="min-w-0 pr-1">
-                          <p className="font-semibold text-slate-700 truncate text-[11px]">
-                            {item.name}
+                      <div className="p-3 space-y-2.5 flex-1 flex flex-col justify-between">
+                        {item.content ? (
+                          <p className="text-xs text-slate-700 whitespace-pre-line leading-relaxed">
+                            {item.content}
                           </p>
-                          <p className="text-[10px] text-slate-400">
-                            {item.size ? formatBytes(item.size) : ''}
-                            {item.uploadedAt ? ` • ${new Date(item.uploadedAt).toLocaleDateString()}` : ''}
-                          </p>
+                        ) : null}
+
+                        <div className="pt-2 border-t border-slate-100">
+                          {editingMediaId === item.id ? (
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="text"
+                                value={editingName}
+                                onChange={(e) => setEditingName(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleSaveRename(item.id)
+                                  if (e.key === 'Escape') handleCancelRename()
+                                }}
+                                autoFocus
+                                className="flex-1 min-w-0 px-2 py-0.5 text-xs rounded border border-indigo-400 bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                              />
+                              <button
+                                type="button"
+                                disabled={isRenaming || !editingName.trim()}
+                                onClick={() => handleSaveRename(item.id)}
+                                className="p-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer disabled:opacity-50"
+                                title="Save name"
+                              >
+                                {isRenaming ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isRenaming}
+                                onClick={handleCancelRename}
+                                className="p-1 rounded bg-slate-200 hover:bg-slate-300 text-slate-700 cursor-pointer"
+                                title="Cancel"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-between text-xs text-slate-400">
+                              <div className="min-w-0 pr-1">
+                                <p className="font-semibold text-slate-700 truncate text-[11px]">
+                                  {item.name}
+                                </p>
+                                <p className="text-[10px] text-slate-400">
+                                  {item.size ? formatBytes(item.size) : ''}
+                                  {item.uploadedAt ? ` • ${new Date(item.uploadedAt).toLocaleDateString()}` : ''}
+                                </p>
+                              </div>
+
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartRename(item)}
+                                  title="Rename video"
+                                  className="p-1 rounded-md text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors cursor-pointer"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+
+                                {item.content && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopy(item.content || '', item.id)}
+                                    title="Copy caption"
+                                    className="p-1 rounded-md text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer"
+                                  >
+                                    {copiedId === item.id ? (
+                                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                    ) : (
+                                      <Copy className="w-3.5 h-3.5" />
+                                    )}
+                                  </button>
+                                )}
+
+                                <a
+                                  href={item.url}
+                                  download={item.name}
+                                  title="Download video"
+                                  className="p-1 rounded-md text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors cursor-pointer"
+                                >
+                                  <Download className="w-3.5 h-3.5" />
+                                </a>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteMedia(item.id)}
+                                  title="Delete video"
+                                  className="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                }
+
+                if (itemType === 'pdf') {
+                  return (
+                    <div
+                      key={item.id}
+                      className="break-inside-avoid mb-3.5 bg-white rounded-xl border border-rose-200/90 p-3.5 shadow-2xs hover:shadow-md hover:border-rose-300 transition-all duration-300 flex flex-col justify-between"
+                    >
+                      <div>
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <div className="w-7 h-7 rounded-lg bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center shrink-0">
+                            <FileText className="w-4 h-4" />
+                          </div>
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-rose-50 text-rose-700 border border-rose-200">
+                            PDF
+                          </span>
                         </div>
 
-                        <div className="flex items-center gap-1 shrink-0">
+                        {editingMediaId === item.id ? (
+                          <div className="flex items-center gap-1 mb-2">
+                            <input
+                              type="text"
+                              value={editingName}
+                              onChange={(e) => setEditingName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleSaveRename(item.id)
+                                if (e.key === 'Escape') handleCancelRename()
+                              }}
+                              autoFocus
+                              className="flex-1 min-w-0 px-2 py-0.5 text-xs rounded border border-indigo-400 bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                            />
+                            <button
+                              type="button"
+                              disabled={isRenaming || !editingName.trim()}
+                              onClick={() => handleSaveRename(item.id)}
+                              className="p-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer disabled:opacity-50"
+                              title="Save name"
+                            >
+                              {isRenaming ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isRenaming}
+                              onClick={handleCancelRename}
+                              className="p-1 rounded bg-slate-200 hover:bg-slate-300 text-slate-700 cursor-pointer"
+                              title="Cancel"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ) : (
+                          <h4 className="font-bold text-slate-900 text-xs sm:text-sm leading-snug break-words mb-1">
+                            {item.name}
+                          </h4>
+                        )}
+                        <p className="text-[10px] text-slate-400 mb-2">
+                          {formatBytes(item.size)}
+                          {item.uploadedAt ? ` • ${new Date(item.uploadedAt).toLocaleDateString()}` : ''}
+                        </p>
+
+                        {item.content && (
+                          <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100 text-xs text-slate-700 whitespace-pre-line leading-relaxed mb-2.5">
+                            {item.content}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                        {item.url ? (
+                          <a
+                            href={item.url}
+                            download={item.name}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors cursor-pointer"
+                          >
+                            <Download className="w-3 h-3" />
+                            <span>Download</span>
+                          </a>
+                        ) : <span />}
+
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleStartRename(item)}
+                            title="Rename PDF"
+                            className="p-1 rounded-md text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors cursor-pointer"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
                           {item.content && (
                             <button
                               type="button"
                               onClick={() => handleCopy(item.content || '', item.id)}
-                              title="Copy caption"
+                              title="Copy text"
                               className="p-1 rounded-md text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer"
                             >
                               {copiedId === item.id ? (
@@ -626,20 +1087,10 @@ export default function MemoryDetail() {
                               )}
                             </button>
                           )}
-
-                          <a
-                            href={item.url}
-                            download={item.name}
-                            title="Download photo"
-                            className="p-1 rounded-md text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors cursor-pointer"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                          </a>
-
                           <button
                             type="button"
                             onClick={() => handleDeleteMedia(item.id)}
-                            title="Delete item"
+                            title="Delete document"
                             className="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -647,37 +1098,173 @@ export default function MemoryDetail() {
                         </div>
                       </div>
                     </div>
-                  </div>
-                )
-              }
+                  )
+                }
 
-              // 2. PDF Document Card
-              if (itemType === 'pdf') {
+                if (itemType === 'note') {
+                  return (
+                    <div
+                      key={item.id}
+                      className="break-inside-avoid mb-3.5 bg-amber-50/60 rounded-xl border border-amber-200/90 p-3.5 shadow-2xs hover:shadow-md hover:border-amber-300 transition-all duration-300 flex flex-col justify-between"
+                    >
+                      <div>
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <div className="w-7 h-7 rounded-lg bg-amber-100 border border-amber-200 text-amber-700 flex items-center justify-center shrink-0">
+                            <StickyNote className="w-3.5 h-3.5" />
+                          </div>
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-200">
+                            Note
+                          </span>
+                        </div>
+
+                        {editingMediaId === item.id ? (
+                          <div className="flex items-center gap-1 mb-2">
+                            <input
+                              type="text"
+                              value={editingName}
+                              onChange={(e) => setEditingName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleSaveRename(item.id)
+                                if (e.key === 'Escape') handleCancelRename()
+                              }}
+                              autoFocus
+                              className="flex-1 min-w-0 px-2 py-0.5 text-xs rounded border border-indigo-400 bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                            />
+                            <button
+                              type="button"
+                              disabled={isRenaming || !editingName.trim()}
+                              onClick={() => handleSaveRename(item.id)}
+                              className="p-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer disabled:opacity-50"
+                              title="Save name"
+                            >
+                              {isRenaming ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isRenaming}
+                              onClick={handleCancelRename}
+                              className="p-1 rounded bg-slate-200 hover:bg-slate-300 text-slate-700 cursor-pointer"
+                              title="Cancel"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ) : item.name && item.name !== 'Note' ? (
+                          <h4 className="font-bold text-slate-900 text-xs sm:text-sm mb-1">
+                            {item.name}
+                          </h4>
+                        ) : null}
+
+                        <p className="text-xs text-slate-800 whitespace-pre-line leading-relaxed">
+                          {item.content || '(Empty note)'}
+                        </p>
+                      </div>
+
+                      <div className="pt-2 mt-3 border-t border-amber-200/60 flex items-center justify-between text-[10px] text-amber-800/70">
+                        <span>
+                          {item.uploadedAt ? new Date(item.uploadedAt).toLocaleDateString() : 'Memo'}
+                        </span>
+
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleStartRename(item)}
+                            title="Rename note"
+                            className="p-1 rounded-md text-amber-700 hover:text-indigo-600 hover:bg-amber-100 transition-colors cursor-pointer"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(item.content || '', item.id)}
+                            title="Copy text"
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-amber-800 hover:bg-amber-100 transition-colors cursor-pointer text-[11px] font-semibold"
+                          >
+                            {copiedId === item.id ? (
+                              <>
+                                <Check className="w-3 h-3 text-emerald-600" />
+                                <span className="text-emerald-700">Copied</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3.5 h-3.5" />
+                                <span>Copy</span>
+                              </>
+                            )}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteMedia(item.id)}
+                            title="Delete note"
+                            className="p-1 rounded-md text-amber-700 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                }
+
                 return (
                   <div
                     key={item.id}
-                    className="break-inside-avoid mb-3.5 bg-white rounded-xl border border-rose-200/90 p-3.5 shadow-2xs hover:shadow-md hover:border-rose-300 transition-all duration-300 flex flex-col justify-between"
+                    className="break-inside-avoid mb-3.5 bg-white rounded-xl border border-slate-200/90 p-3.5 shadow-2xs hover:shadow-md hover:border-slate-300 transition-all duration-300 flex flex-col justify-between"
                   >
                     <div>
-                      {/* Document Type Header */}
                       <div className="flex items-center justify-between gap-2 mb-2">
-                        <div className="w-7 h-7 rounded-lg bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center shrink-0">
-                          <FileText className="w-4 h-4" />
+                        <div className="w-7 h-7 rounded-lg bg-slate-100 border border-slate-200 text-slate-600 flex items-center justify-center shrink-0">
+                          <File className="w-3.5 h-3.5" />
                         </div>
-                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-rose-50 text-rose-700 border border-rose-200">
-                          PDF
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-slate-100 text-slate-700 border border-slate-200">
+                          Attachment
                         </span>
                       </div>
 
-                      <h4 className="font-bold text-slate-900 text-xs sm:text-sm leading-snug break-words mb-1">
-                        {item.name}
-                      </h4>
+                      {editingMediaId === item.id ? (
+                        <div className="flex items-center gap-1 mb-2">
+                          <input
+                            type="text"
+                            value={editingName}
+                            onChange={(e) => setEditingName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleSaveRename(item.id)
+                              if (e.key === 'Escape') handleCancelRename()
+                            }}
+                            autoFocus
+                            className="flex-1 min-w-0 px-2 py-0.5 text-xs rounded border border-indigo-400 bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                          />
+                          <button
+                            type="button"
+                            disabled={isRenaming || !editingName.trim()}
+                            onClick={() => handleSaveRename(item.id)}
+                            className="p-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer disabled:opacity-50"
+                            title="Save name"
+                          >
+                            {isRenaming ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isRenaming}
+                            onClick={handleCancelRename}
+                            className="p-1 rounded bg-slate-200 hover:bg-slate-300 text-slate-700 cursor-pointer"
+                            title="Cancel"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ) : (
+                        <h4 className="font-bold text-slate-900 text-xs sm:text-sm leading-snug break-words mb-1">
+                          {item.name}
+                        </h4>
+                      )}
                       <p className="text-[10px] text-slate-400 mb-2">
                         {formatBytes(item.size)}
                         {item.uploadedAt ? ` • ${new Date(item.uploadedAt).toLocaleDateString()}` : ''}
                       </p>
 
-                      {/* Accompanying Document Text / Note */}
                       {item.content && (
                         <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100 text-xs text-slate-700 whitespace-pre-line leading-relaxed mb-2.5">
                           {item.content}
@@ -685,20 +1272,28 @@ export default function MemoryDetail() {
                       )}
                     </div>
 
-                    {/* Footer Actions */}
                     <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
                       {item.url ? (
                         <a
                           href={item.url}
                           download={item.name}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors cursor-pointer"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 transition-colors cursor-pointer"
                         >
-                          <Download className="w-3 h-3" />
+                          <Download className="w-3.5 h-3.5" />
                           <span>Download</span>
                         </a>
                       ) : <span />}
 
                       <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleStartRename(item)}
+                          title="Rename file"
+                          className="p-1 rounded-md text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors cursor-pointer"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+
                         {item.content && (
                           <button
                             type="button"
@@ -716,7 +1311,7 @@ export default function MemoryDetail() {
                         <button
                           type="button"
                           onClick={() => handleDeleteMedia(item.id)}
-                          title="Delete document"
+                          title="Delete file"
                           className="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -725,152 +1320,8 @@ export default function MemoryDetail() {
                     </div>
                   </div>
                 )
-              }
-
-              // 3. Standalone Note Card (Collage Pinboard Note)
-              if (itemType === 'note') {
-                return (
-                  <div
-                    key={item.id}
-                    className="break-inside-avoid mb-3.5 bg-amber-50/60 rounded-xl border border-amber-200/90 p-3.5 shadow-2xs hover:shadow-md hover:border-amber-300 transition-all duration-300 flex flex-col justify-between"
-                  >
-                    <div>
-                      {/* Note Header */}
-                      <div className="flex items-center justify-between gap-2 mb-2">
-                        <div className="w-7 h-7 rounded-lg bg-amber-100 border border-amber-200 text-amber-700 flex items-center justify-center shrink-0">
-                          <StickyNote className="w-3.5 h-3.5" />
-                        </div>
-                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-200">
-                          Note
-                        </span>
-                      </div>
-
-                      {item.name && item.name !== 'Note' ? (
-                        <h4 className="font-bold text-slate-900 text-xs sm:text-sm mb-1">
-                          {item.name}
-                        </h4>
-                      ) : null}
-
-                      {/* Note Content */}
-                      <p className="text-xs text-slate-800 whitespace-pre-line leading-relaxed">
-                        {item.content || '(Empty note)'}
-                      </p>
-                    </div>
-
-                    {/* Note Footer */}
-                    <div className="pt-2 mt-3 border-t border-amber-200/60 flex items-center justify-between text-[10px] text-amber-800/70">
-                      <span>
-                        {item.uploadedAt ? new Date(item.uploadedAt).toLocaleDateString() : 'Memo'}
-                      </span>
-
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => handleCopy(item.content || '', item.id)}
-                          title="Copy text"
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-amber-800 hover:bg-amber-100 transition-colors cursor-pointer text-[11px] font-semibold"
-                        >
-                          {copiedId === item.id ? (
-                            <>
-                              <Check className="w-3 h-3 text-emerald-600" />
-                              <span className="text-emerald-700">Copied</span>
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="w-3 h-3" />
-                              <span>Copy</span>
-                            </>
-                          )}
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteMedia(item.id)}
-                          title="Delete note"
-                          className="p-1 rounded-md text-amber-700 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )
-              }
-
-              // 4. Other Document Card
-              return (
-                <div
-                  key={item.id}
-                  className="break-inside-avoid mb-3.5 bg-white rounded-xl border border-slate-200/90 p-3.5 shadow-2xs hover:shadow-md hover:border-slate-300 transition-all duration-300 flex flex-col justify-between"
-                >
-                  <div>
-                    {/* Header */}
-                    <div className="flex items-center justify-between gap-2 mb-2">
-                      <div className="w-7 h-7 rounded-lg bg-slate-100 border border-slate-200 text-slate-600 flex items-center justify-center shrink-0">
-                        <File className="w-3.5 h-3.5" />
-                      </div>
-                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-slate-100 text-slate-700 border border-slate-200">
-                        Attachment
-                      </span>
-                    </div>
-
-                    <h4 className="font-bold text-slate-900 text-xs sm:text-sm leading-snug break-words mb-1">
-                      {item.name}
-                    </h4>
-                    <p className="text-[10px] text-slate-400 mb-2">
-                      {formatBytes(item.size)}
-                      {item.uploadedAt ? ` • ${new Date(item.uploadedAt).toLocaleDateString()}` : ''}
-                    </p>
-
-                    {/* Accompanying text */}
-                    {item.content && (
-                      <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100 text-xs text-slate-700 whitespace-pre-line leading-relaxed mb-2.5">
-                        {item.content}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Footer Actions */}
-                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
-                    {item.url ? (
-                      <a
-                        href={item.url}
-                        download={item.name}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 transition-colors cursor-pointer"
-                      >
-                        <Download className="w-3 h-3" />
-                        <span>Download</span>
-                      </a>
-                    ) : <span />}
-
-                    <div className="flex items-center gap-1">
-                      {item.content && (
-                        <button
-                          type="button"
-                          onClick={() => handleCopy(item.content || '', item.id)}
-                          title="Copy text"
-                          className="p-1 rounded-md text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer"
-                        >
-                          {copiedId === item.id ? (
-                            <Check className="w-3.5 h-3.5 text-emerald-600" />
-                          ) : (
-                            <Copy className="w-3.5 h-3.5" />
-                          )}
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteMedia(item.id)}
-                        title="Delete file"
-                        className="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
+              })}
+            </div>
           </div>
         ) : (
           <div className="text-center py-8 text-slate-400">

@@ -6,6 +6,7 @@ import {
   deleteMemoryApi,
   uploadMemoryMediaApi,
   deleteMemoryMediaApi,
+  updateMemoryMediaApi,
   type Memory,
   type CreateMemoryPayload,
   type UpdateMemoryPayload,
@@ -120,6 +121,24 @@ export const deleteMemoryMedia = createAsyncThunk(
   },
 )
 
+export const updateMemoryMedia = createAsyncThunk(
+  'memories/updateMemoryMedia',
+  async (
+    { id, mediaId, data }: { id: string; mediaId: string; data: { name?: string; content?: string } },
+    { rejectWithValue },
+  ) => {
+    try {
+      const res = await updateMemoryMediaApi(id, mediaId, data)
+      showToast('Attachment renamed successfully', 'success')
+      return res.data
+    } catch (err: any) {
+      const msg = err.response?.data?.message || 'Failed to rename attachment'
+      showToast(msg, 'error')
+      return rejectWithValue(msg)
+    }
+  },
+)
+
 export const memorySlice = createSlice({
   name: 'memories',
   initialState,
@@ -182,6 +201,11 @@ export const memorySlice = createSlice({
         )
       })
       .addCase(deleteMemoryMedia.fulfilled, (state, action) => {
+        state.memories = state.memories.map((m) =>
+          m.id === action.payload.id ? action.payload : m,
+        )
+      })
+      .addCase(updateMemoryMedia.fulfilled, (state, action) => {
         state.memories = state.memories.map((m) =>
           m.id === action.payload.id ? action.payload : m,
         )
