@@ -194,4 +194,41 @@ Uncertainty:
       );
     }
   }
+
+  async extractStructured(
+    data: Buffer,
+    filename: string,
+    mimeType?: string,
+  ): Promise<{ fullText: string; segments?: any[]; metadata?: Record<string, any> }> {
+    const fullText = await this.extract(data, filename, mimeType);
+    const segments: any[] = [];
+
+    // Parse visible text (OCR) if present
+    const ocrMatch = fullText.match(/Visible Text:\s*([\s\S]*?)(?=\n[A-Z][A-Za-z /]+:|$)/i);
+    const visibleText = ocrMatch ? ocrMatch[1].trim() : '';
+
+    if (visibleText && !visibleText.toLowerCase().includes('none') && !visibleText.toLowerCase().includes('no text')) {
+      segments.push({
+        contentType: 'ocr',
+        text: `Transcribed text in image "${filename}":\n${visibleText}`,
+        sourceReference: `${filename} (Visible Text)`,
+        metadata: { filename, type: 'ocr' },
+      });
+    }
+
+    // Main visual description
+    segments.push({
+      contentType: 'image_description',
+      text: fullText,
+      sourceReference: `${filename} (Visual Analysis)`,
+      metadata: { filename, type: 'image_description' },
+    });
+
+    return {
+      fullText,
+      segments,
+      metadata: { filename, mimeType: this.resolveImageMimeType(mimeType, filename) },
+    };
+  }
 }
+

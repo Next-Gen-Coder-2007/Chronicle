@@ -213,4 +213,73 @@ Uncertainty:
       );
     }
   }
+
+  private parseSeconds(ts: string): number | undefined {
+    const parts = ts.trim().split(':').map(Number);
+    if (parts.some(isNaN)) return undefined;
+    if (parts.length === 2) return parts[0] * 60 + parts[1];
+    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    return undefined;
+  }
+
+  async extractStructured(
+    data: Buffer,
+    filename: string,
+    mimeType?: string,
+  ): Promise<{ fullText: string; segments?: any[]; metadata?: Record<string, any> }> {
+    const fullText = await this.extract(data, filename, mimeType);
+    const segments: any[] = [];
+
+    // Extract Transcript block
+    const transcriptMatch = fullText.match(/Transcript:\s*([\s\S]*?)(?=\n[A-Z][A-Za-z /]+:|$)/i);
+    const transcriptText = transcriptMatch ? transcriptMatch[1].trim() : '';
+
+    if (transcriptText) {
+      // Find dialogue / timestamp turns e.g. [00:15 - 00:30] Speaker 1: Hello
+      const turnRegex = /(?:\[(\d{1,2}:\d{2})(?:\s*-\s*(\d{1,2}:\d{2}))?\]\s*)?(?:(Speaker\s*\d+|[A-Z][a-z]+):\s*)?([^\n]+(?:\n(?!(?:\[\d{1,2}:\d{2}|Speaker\s*\d+:))[^\n]+)*)/g;
+      let match: RegExpExecArray | null;
+
+      while ((match = turnRegex.exec(transcriptText)) !== null) {
+        const startTsStr = match[1];
+        const endTsStr = match[2];
+        const speaker = match[3];
+        const utterance = match[4]?.trim();
+
+        if (utterance && utterance.length > 5) {
+          const startSeconds = startTsStr ? this.parseSeconds(startTsStr) : undefined;
+          const endSeconds = endTsStr ? this.parseSeconds(endTsStr) : undefined;
+
+          segments.push({
+            contentType: 'audio_transcript',
+            text: speaker ? `${speaker}: ${utterance}` : utterance,
+            startTimestamp: startSeconds,
+            endTimestamp: endSeconds,
+            speaker,
+            sourceReference: startTsStr ? `${filename} [${startTsStr}${endTsStr ? ` - ${endTsStr}` : ''}]` : filename,
+            metadata: {
+              filename,
+              speaker,
+              startTime: startTsStr,
+              endTime: endTsStr,
+            },
+          });
+        }
+      }
+    }
+
+    // Always include a holistic summary chunk
+    segments.push({
+      contentType: 'audio_transcript',
+      text: fullText,
+      sourceReference: `${filename} (Full Analysis)`,
+      metadata: { filename, type: 'audio_summary' },
+    });
+
+    return {
+      fullText,
+      segments: segments.length > 0 ? segments : undefined,
+      metadata: { filename, mimeType: this.resolveAudioMimeType(mimeType, filename) },
+    };
+  }
 }
+

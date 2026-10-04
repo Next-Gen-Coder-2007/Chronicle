@@ -249,4 +249,106 @@ Uncertainty:
       );
     }
   }
+
+  private parseSeconds(ts: string): number | undefined {
+    const parts = ts.trim().split(':').map(Number);
+    if (parts.some(isNaN)) return undefined;
+    if (parts.length === 2) return parts[0] * 60 + parts[1];
+    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    return undefined;
+  }
+
+  async extractStructured(
+    data: Buffer,
+    filename: string,
+    mimeType?: string,
+  ): Promise<{ fullText: string; segments?: any[]; metadata?: Record<string, any> }> {
+    const fullText = await this.extract(data, filename, mimeType);
+    const segments: any[] = [];
+
+    // Parse Timeline / Scenes e.g. [00:05 - 00:20] People entering lecture hall
+    const timelineMatch = fullText.match(/Timeline:\s*([\s\S]*?)(?=\n[A-Z][A-Za-z /]+:|$)/i);
+    const timelineText = timelineMatch ? timelineMatch[1].trim() : '';
+
+    if (timelineText) {
+      const sceneRegex = /(?:\[(\d{1,2}:\d{2})(?:\s*-\s*(\d{1,2}:\d{2}))?\]\s*)?([^\n]+)/g;
+      let match: RegExpExecArray | null;
+
+      while ((match = sceneRegex.exec(timelineText)) !== null) {
+        const startTs = match[1];
+        const endTs = match[2];
+        const desc = match[3]?.trim();
+
+        if (desc && desc.length > 5 && !desc.startsWith('-') && desc !== 'Timeline:') {
+          const startSeconds = startTs ? this.parseSeconds(startTs) : undefined;
+          const endSeconds = endTs ? this.parseSeconds(endTs) : undefined;
+
+          segments.push({
+            contentType: 'video_scene',
+            text: desc,
+            startTimestamp: startSeconds,
+            endTimestamp: endSeconds,
+            sourceReference: startTs ? `${filename} [${startTs}${endTs ? ` - ${endTs}` : ''}]` : filename,
+            metadata: {
+              filename,
+              type: 'video_scene',
+              startTime: startTs,
+              endTime: endTs,
+            },
+          });
+        }
+      }
+    }
+
+    // Parse Audio / Transcript
+    const transcriptMatch = fullText.match(/Audio \/ Transcript:\s*([\s\S]*?)(?=\n[A-Z][A-Za-z /]+:|$)/i);
+    const transcriptText = transcriptMatch ? transcriptMatch[1].trim() : '';
+
+    if (transcriptText) {
+      const turnRegex = /(?:\[(\d{1,2}:\d{2})(?:\s*-\s*(\d{1,2}:\d{2}))?\]\s*)?(?:(Speaker\s*\d+|Person\s*\d+|[A-Z][a-z]+):\s*)?([^\n]+(?:\n(?!(?:\[\d{1,2}:\d{2}|(?:Speaker|Person)\s*\d+:))[^\n]+)*)/g;
+      let match: RegExpExecArray | null;
+
+      while ((match = turnRegex.exec(transcriptText)) !== null) {
+        const startTsStr = match[1];
+        const endTsStr = match[2];
+        const speaker = match[3];
+        const utterance = match[4]?.trim();
+
+        if (utterance && utterance.length > 5) {
+          const startSeconds = startTsStr ? this.parseSeconds(startTsStr) : undefined;
+          const endSeconds = endTsStr ? this.parseSeconds(endTsStr) : undefined;
+
+          segments.push({
+            contentType: 'video_transcript',
+            text: speaker ? `${speaker}: ${utterance}` : utterance,
+            startTimestamp: startSeconds,
+            endTimestamp: endSeconds,
+            speaker,
+            sourceReference: startTsStr ? `${filename} [${startTsStr}${endTsStr ? ` - ${endTsStr}` : ''}]` : filename,
+            metadata: {
+              filename,
+              speaker,
+              startTime: startTsStr,
+              endTime: endTsStr,
+            },
+          });
+        }
+      }
+    }
+
+    // Holistic video summary
+    segments.push({
+      contentType: 'video_scene',
+      text: fullText,
+      sourceReference: `${filename} (Full Analysis)`,
+      metadata: { filename, type: 'video_summary' },
+    });
+
+    return {
+      fullText,
+      segments: segments.length > 0 ? segments : undefined,
+      metadata: { filename, mimeType: this.resolveVideoMimeType(mimeType, filename) },
+    };
+  }
 }
+
