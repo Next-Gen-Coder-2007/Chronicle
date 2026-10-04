@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { createPortal } from 'react-dom'
 import { useSearchParams } from 'react-router-dom'
 import {
   Send,
@@ -18,8 +17,7 @@ import {
   ArrowRight,
   Copy,
   Check,
-  X,
-  FolderOpen,
+  ShieldCheck,
 } from 'lucide-react'
 import { useAppSelector } from '../store'
 import {
@@ -28,6 +26,7 @@ import {
   type ChatSourceCitation,
 } from '../api'
 import MarkdownRenderer from '../components/MarkdownRenderer'
+import MediaInspectorModal from '../components/MediaInspectorModal'
 
 interface ExtendedMessage extends ChatMessage {
   id: string
@@ -45,8 +44,8 @@ export default function Chat() {
   const [inputMessage, setInputMessage] = useState('')
   const [messages, setMessages] = useState<ExtendedMessage[]>([])
   const [isLoading, setIsLoading] = useState(false)
-  const [activePreviewChunk, setActivePreviewChunk] = useState<ChatSourceCitation | null>(null)
-  const [copiedChunkId, setCopiedChunkId] = useState<string | null>(null)
+  const [inspectingCitation, setInspectingCitation] = useState<ChatSourceCitation | null>(null)
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -58,7 +57,14 @@ export default function Chat() {
   }, [initialMemoryId])
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (messagesEndRef.current) {
+      const lenis = (window as any).__lenis
+      if (lenis) {
+        lenis.scrollTo(messagesEndRef.current, { offset: -100, duration: 0.8 })
+      } else {
+        messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
+      }
+    }
   }, [messages, isLoading])
 
   const selectedMemory = memories.find((m) => m.id === selectedMemoryId)
@@ -74,7 +80,7 @@ export default function Chat() {
 
   const handleClearChat = () => {
     setMessages([])
-    setActivePreviewChunk(null)
+    setInspectingCitation(null)
   }
 
   const getFileIcon = (mimeType?: string, filename?: string) => {
@@ -87,57 +93,58 @@ export default function Chat() {
     if (mimeType?.startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(filename || '')) {
       return <ImageIcon className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
     }
-    if (mimeType === 'note' || filename === 'Note') {
-      return <StickyNote className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+    if (mimeType === 'application/pdf' || filename?.toLowerCase().endsWith('.pdf')) {
+      return <FileText className="w-3.5 h-3.5 text-amber-600 shrink-0" />
     }
-    if (mimeType?.includes('json') || mimeType?.includes('html') || mimeType?.includes('csv')) {
-      return <FileCode className="w-3.5 h-3.5 text-cyan-600 shrink-0" />
+    if (mimeType?.includes('word') || filename?.toLowerCase().endsWith('.docx')) {
+      return <FileText className="w-3.5 h-3.5 text-blue-600 shrink-0" />
     }
-    return <FileText className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+    if (mimeType?.includes('sheet') || filename?.toLowerCase().endsWith('.csv')) {
+      return <FileCode className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+    }
+    if (mimeType?.includes('json') || filename?.toLowerCase().endsWith('.json')) {
+      return <FileCode className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+    }
+    return <StickyNote className="w-3.5 h-3.5 text-slate-500 shrink-0" />
   }
 
-  const handleCopyChunk = async (chunk: ChatSourceCitation) => {
+  const handleCopyMessage = async (msg: ExtendedMessage) => {
     try {
-      await navigator.clipboard.writeText(chunk.content)
-      setCopiedChunkId(chunk.id)
-      setTimeout(() => setCopiedChunkId(null), 2000)
-    } catch {
-    }
+      await navigator.clipboard.writeText(msg.content)
+      setCopiedMessageId(msg.id)
+      setTimeout(() => setCopiedMessageId(null), 2000)
+    } catch {}
   }
 
-  const handleSend = async (customPrompt?: string) => {
-    const textToSend = (customPrompt || inputMessage).trim()
-    if (!textToSend || isLoading) return
+  const handleSend = async (overridePrompt?: string) => {
+    const textToSend = overridePrompt || inputMessage
+    if (!textToSend.trim() || isLoading) return
 
     const userMessage: ExtendedMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
-      content: textToSend,
+      content: textToSend.trim(),
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     }
 
     setMessages((prev) => [...prev, userMessage])
-    if (!customPrompt) {
-      setInputMessage('')
-      if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto'
-      }
-    }
+    setInputMessage('')
     setIsLoading(true)
 
-    const historyPayload: ChatMessage[] = messages
-      .filter((m) => !m.error)
-      .slice(-6)
-      .map((m) => ({
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
+    }
+
+    try {
+      const historyToSend: ChatMessage[] = messages.map((m) => ({
         role: m.role,
         content: m.content,
       }))
 
-    try {
       const response = await sendChatMessageApi({
-        message: textToSend,
+        message: userMessage.content,
+        history: historyToSend,
         memoryId: selectedMemoryId || undefined,
-        history: historyPayload,
       })
 
       const assistantMessage: ExtendedMessage = {
@@ -153,7 +160,7 @@ export default function Chat() {
       const errorMessage: ExtendedMessage = {
         id: `error-${Date.now()}`,
         role: 'assistant',
-        content: "Sorry, I couldn't generate an answer based on your memories. Please verify your query or try again.",
+        content: "I couldn't find sufficient information in your memories to answer this question. Try rephrasing or selecting another memory scope.",
         error: true,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       }
@@ -170,54 +177,33 @@ export default function Chat() {
     }
   }
 
-  const suggestedQuestions = selectedMemory
-    ? [
-        `Summarize the key information across all files in "${selectedMemory.title}"`,
-        'What specific skills, details, or steps are documented in the files?',
-        'What timeline dates, milestones, or decisions are mentioned?',
-        'Highlight any discrepancies, notes, or important action items.',
-      ]
-    : [
-        'Summarize the most important information across all my uploaded memories.',
-        'What files, documents, and visual media do I have stored?',
-        'Extract any skills, accomplishments, or work history from my documents.',
-        'Find any action items or deadlines mentioned in my notes.',
-      ]
+  const suggestedInquiries = [
+    'Summarize the most important information across all my uploaded memories.',
+    'What files, documents, and visual media do I have stored?',
+    'Extract any skills, accomplishments, or work history from my documents.',
+    'Find any action items or deadlines mentioned in my notes.',
+  ]
 
   return (
-    <div className="-m-3.5 sm:-m-5 lg:-m-6 flex flex-col h-[calc(100vh-4rem)] bg-[#f8fafd] overflow-hidden">
-      <div className="h-14 px-4 sm:px-6 bg-white border-b border-slate-200/80 flex items-center justify-between gap-3 shrink-0 z-10 shadow-2xs">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center shadow-xs shrink-0">
-            <Sparkles className="w-4 h-4" />
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h1 className="text-sm font-bold text-slate-900 tracking-tight">
-                Chronicle Memory AI
-              </h1>
-              <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200/80">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                pgvector + RAG
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-500 truncate hidden md:block">
-              Answers synthesize all attached files, transcripts, notes, and media
-            </p>
-          </div>
+    <div className="flex flex-col min-h-[calc(100vh-8rem)] max-w-4xl mx-auto w-full">
+      {/* Top Controls: Scope Selector & Reset */}
+      <div className="sticky top-16 z-20 bg-[#f8fafd]/95 backdrop-blur-md flex items-center justify-between py-2.5 mb-4 shrink-0 border-b border-slate-200/60">
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="text-xs font-semibold text-slate-700">Grounded Memory RAG</span>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2">
           <div className="relative">
             <select
               value={selectedMemoryId}
               onChange={(e) => handleSelectMemory(e.target.value)}
-              className="text-xs font-semibold bg-slate-50 hover:bg-slate-100 text-slate-800 border border-slate-200 rounded-xl pl-3 pr-8 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all appearance-none cursor-pointer max-w-[200px] sm:max-w-xs truncate"
+              className="appearance-none bg-white hover:bg-slate-50 border border-slate-200/90 text-xs font-semibold text-slate-700 rounded-xl pl-3 pr-8 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all cursor-pointer shadow-2xs"
             >
               <option value="">All Memories (Global Knowledge)</option>
               {memories.map((m) => (
                 <option key={m.id} value={m.id}>
-                  {m.title} ({m.media?.length || 0} files)
+                  Memory: {m.title}
                 </option>
               ))}
             </select>
@@ -227,136 +213,194 @@ export default function Chat() {
           {messages.length > 0 && (
             <button
               onClick={handleClearChat}
-              title="Reset conversation"
-              className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+              className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-white bg-white/70 rounded-xl transition-colors cursor-pointer border border-slate-200/80 shadow-2xs"
+              title="Clear conversation"
             >
-              <RotateCcw className="w-4 h-4" />
+              <RotateCcw className="w-3.5 h-3.5" />
             </button>
           )}
         </div>
       </div>
 
-      <div
-        data-lenis-prevent="true"
-        className="flex-1 overflow-y-auto px-4 sm:px-6 py-6"
-      >
-        <div className="max-w-3xl mx-auto space-y-6">
-          {messages.length === 0 ? (
-            <div className="py-10 flex flex-col items-center justify-center text-center">
-              <div className="w-14 h-14 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shadow-xs mb-4">
-                <Bot className="w-7 h-7" />
+      {/* Main Conversation Stream */}
+      <div className="flex-1 space-y-6 pb-6">
+        {messages.length === 0 ? (
+          <div className="max-w-2xl mx-auto py-8 sm:py-12 flex flex-col items-center text-center space-y-5">
+            {/* Minimalist Bot Avatar */}
+            <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shadow-2xs">
+              <Bot className="w-6 h-6" />
+            </div>
+
+            <div className="space-y-1.5 max-w-lg">
+              <h3 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+                AI Memory Assistant
+              </h3>
+              <p className="text-xs sm:text-sm text-slate-500 leading-relaxed">
+                Ask any question across all documents, PDF resumes, image flowcharts, audio transcripts, and notes.
+              </p>
+            </div>
+
+            {/* Suggested Inquiries */}
+            <div className="w-full max-w-xl space-y-2 pt-4 text-left">
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5 px-1">
+                <Sparkles className="w-3 h-3 text-indigo-500" />
+                <span>Suggested Inquiries</span>
               </div>
 
-              <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight mb-2">
-                {selectedMemory ? `Inquire about "${selectedMemory.title}"` : 'AI Memory Assistant'}
-              </h2>
-              <p className="text-xs sm:text-sm text-slate-600 max-w-md mb-6 leading-relaxed">
-                {selectedMemory
-                  ? `Directly referencing all ${selectedMemory.media?.length || 0} attached files, transcripts, notes, and documents in this memory.`
-                  : 'Ask any question across all documents, PDF resumes, image flowcharts, audio transcripts, and notes.'}
-              </p>
-
-              {selectedMemory && selectedMemory.media && selectedMemory.media.length > 0 && (
-                <div className="w-full max-w-lg mb-6 p-3 bg-white border border-slate-200/80 rounded-xl shadow-2xs text-left">
-                  <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">
-                    <FolderOpen className="w-3.5 h-3.5" />
-                    <span>Active Context Documents ({selectedMemory.media.length})</span>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {selectedMemory.media.map((file) => (
-                      <span
-                        key={file.id}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-50 border border-slate-200 text-slate-700"
-                      >
-                        {getFileIcon(file.type, file.name)}
-                        <span className="truncate max-w-[140px]">{file.name}</span>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="w-full max-w-lg space-y-2">
-                <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider text-left flex items-center gap-1.5">
-                  <Layers className="w-3 h-3 text-indigo-500" />
-                  <span>Suggested Inquiries</span>
-                </div>
-                <div className="grid grid-cols-1 gap-2">
-                  {suggestedQuestions.map((q, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => handleSend(q)}
-                      className="p-3 text-xs text-left text-slate-700 bg-white hover:bg-indigo-50/70 hover:text-indigo-700 hover:border-indigo-300 border border-slate-200/80 rounded-xl transition-all flex items-center justify-between group shadow-2xs cursor-pointer"
-                    >
-                      <span className="font-medium">{q}</span>
-                      <ArrowRight className="w-3.5 h-3.5 text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 ml-2" />
-                    </button>
-                  ))}
-                </div>
+              <div className="space-y-2">
+                {suggestedInquiries.map((promptText, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleSend(promptText)}
+                    className="w-full p-3.5 bg-white hover:bg-indigo-50/40 rounded-xl border border-slate-200/80 hover:border-indigo-300 text-xs text-slate-700 font-medium transition-all text-left cursor-pointer shadow-2xs hover:shadow-xs flex items-center justify-between group"
+                  >
+                    <span className="truncate pr-2">{promptText}</span>
+                    <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-600 group-hover:translate-x-0.5 transition-all shrink-0" />
+                  </button>
+                ))}
               </div>
             </div>
-          ) : (
-            messages.map((message) => {
+          </div>
+        ) : (
+          <div className="max-w-4xl mx-auto space-y-6">
+            {messages.map((message) => {
               const isUser = message.role === 'user'
 
               return (
                 <div
                   key={message.id}
-                  className={`flex gap-3.5 ${isUser ? 'justify-end' : 'justify-start'}`}
+                  className={`flex gap-3 sm:gap-4 items-start ${
+                    isUser ? 'justify-end' : 'justify-start'
+                  } animate-in fade-in duration-200`}
                 >
                   {!isUser && (
-                    <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-2xs mt-1">
+                    <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 text-white flex items-center justify-center shrink-0 shadow-xs mt-1">
                       <Bot className="w-4 h-4" />
                     </div>
                   )}
 
                   <div
-                    className={`max-w-[88%] sm:max-w-[80%] flex flex-col ${
+                    className={`flex flex-col min-w-0 max-w-[88%] sm:max-w-[82%] ${
                       isUser ? 'items-end' : 'items-start'
                     }`}
                   >
                     <div
-                      className={`px-4 py-3 rounded-2xl shadow-2xs leading-relaxed text-sm ${
+                      className={`p-4 sm:p-5 rounded-2xl shadow-xs leading-relaxed text-xs sm:text-sm ${
                         isUser
-                          ? 'bg-indigo-600 text-white rounded-br-xs font-normal'
+                          ? 'bg-gradient-to-br from-indigo-600 to-indigo-700 text-white rounded-br-xs font-normal'
                           : message.error
                             ? 'bg-rose-50 border border-rose-200 text-rose-800 rounded-bl-xs'
-                            : 'bg-white border border-slate-200/90 text-slate-900 rounded-bl-xs'
+                            : 'bg-white border border-slate-200/90 text-slate-900 rounded-bl-xs shadow-sm'
                       }`}
                     >
                       {isUser ? (
                         <p className="whitespace-pre-wrap">{message.content}</p>
                       ) : (
-                        <MarkdownRenderer content={message.content} />
+                        <div className="space-y-3">
+                          <MarkdownRenderer content={message.content} />
+
+                          {/* Quick copy assistant answer button */}
+                          <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
+                            <span className="flex items-center gap-1 text-slate-400">
+                              <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                              <span>Evidence-grounded response</span>
+                            </span>
+                            <button
+                              onClick={() => handleCopyMessage(message)}
+                              className="inline-flex items-center gap-1 hover:text-slate-700 transition-colors cursor-pointer"
+                            >
+                              {copiedMessageId === message.id ? (
+                                <>
+                                  <Check className="w-3 h-3 text-emerald-600" />
+                                  <span className="text-emerald-600">Copied</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3 h-3" />
+                                  <span>Copy answer</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
                       )}
                     </div>
 
+                    {/* Retrieved Sources Ribbon */}
                     {!isUser && message.sources && message.sources.length > 0 && (
-                      <div className="mt-2.5 w-full bg-white border border-slate-200/80 rounded-xl p-2.5 shadow-2xs">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                            <Layers className="w-3 h-3 text-indigo-600" />
-                            <span>Retrieved Context ({message.sources.length})</span>
+                      <div className="mt-3 w-full bg-white border border-slate-200/80 rounded-2xl p-3 sm:p-3.5 shadow-2xs space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
+                            <Layers className="w-3.5 h-3.5 text-indigo-600" />
+                            <span>Retrieved Evidence ({message.sources.length} sources)</span>
                           </span>
-                          <span className="text-[10px] text-slate-400">Click to preview chunk</span>
+                          <span className="text-[10px] text-slate-400">
+                            Click any source to inspect in-app
+                          </span>
                         </div>
 
-                        <div className="flex flex-wrap gap-1.5">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           {message.sources.map((source, sIdx) => {
-                            const relevanceScore = Math.round(source.similarity * 100)
+                            const relevanceScore = Math.round(
+                              (source.relevanceScore ?? source.similarity) * 100,
+                            )
+                            const sMime = source.mimeType || ''
+                            const sName = source.filename || source.documentName || 'Document'
+                            const isImg = sMime.startsWith('image/') || /\.(png|jpe?g|webp|gif|svg)$/i.test(sName)
+                            const isAud = sMime.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac)$/i.test(sName)
+                            const isVid = sMime.startsWith('video/') || /\.(mp4|webm|mov|mkv)$/i.test(sName)
+
+                            const rawPage = source.page ?? source.pageNumber
+                            const numPage = typeof rawPage === 'number' ? rawPage : rawPage != null ? Number(rawPage) : null
+                            const hasPage = !isImg && !isAud && !isVid && numPage !== null && !isNaN(numPage) && numPage > 0
+
+                            const rawStart = source.startTime ?? source.startTimestamp
+                            const rawEnd = source.endTime ?? source.endTimestamp
+                            const numStart = typeof rawStart === 'number' ? rawStart : rawStart != null ? Number(rawStart) : null
+                            const numEnd = typeof rawEnd === 'number' ? rawEnd : rawEnd != null ? Number(rawEnd) : null
+                            const hasTimestamp = (isAud || isVid) && (
+                              (numStart !== null && !isNaN(numStart) && numStart > 0) ||
+                              (numEnd !== null && !isNaN(numEnd) && numEnd > 0)
+                            )
+
                             return (
                               <button
                                 key={source.id || sIdx}
-                                onClick={() => setActivePreviewChunk(source)}
-                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-50 hover:bg-indigo-50 border border-slate-200/90 hover:border-indigo-300 transition-all text-slate-700 hover:text-indigo-700 cursor-pointer shadow-2xs"
+                                onClick={() => setInspectingCitation(source)}
+                                className="group p-2.5 rounded-xl bg-slate-50 hover:bg-indigo-50/70 border border-slate-200/80 hover:border-indigo-300 transition-all flex items-center justify-between gap-2.5 text-left cursor-pointer shadow-2xs hover:shadow-xs"
                               >
-                                {getFileIcon(source.mimeType, source.filename)}
-                                <span className="font-semibold truncate max-w-[130px]">
-                                  {source.filename || 'Document'}
-                                </span>
-                                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-indigo-100/70 text-indigo-800">
-                                  {relevanceScore}%
-                                </span>
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <div className="p-1.5 rounded-lg bg-white border border-slate-200/80 group-hover:border-indigo-200 shrink-0">
+                                    {getFileIcon(source.mimeType, source.filename)}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="text-xs font-bold text-slate-800 group-hover:text-indigo-700 truncate">
+                                      {sName}
+                                    </p>
+                                    <div className="flex items-center gap-1.5 text-[10px] text-slate-500 mt-0.5">
+                                      {hasPage && (
+                                        <span className="font-semibold text-amber-700 bg-amber-50 px-1 rounded border border-amber-200/80">
+                                          p. {numPage}
+                                        </span>
+                                      )}
+                                      {hasTimestamp && numStart !== null && (
+                                        <span className="font-semibold text-purple-700 bg-purple-50 px-1 rounded border border-purple-200/80">
+                                          {Math.floor(numStart / 60)}:
+                                          {String(Math.floor(numStart % 60)).padStart(2, '0')}
+                                        </span>
+                                      )}
+                                      <span className="truncate">
+                                        Chunk #{source.chunkIndex + 1}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="flex flex-col items-end shrink-0 pl-1">
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
+                                    {relevanceScore}%
+                                  </span>
+                                </div>
                               </button>
                             )
                           })}
@@ -370,156 +414,91 @@ export default function Chat() {
                   </div>
 
                   {isUser && (
-                    <div className="w-7 h-7 rounded-lg bg-slate-200 text-slate-700 flex items-center justify-center shrink-0 mt-1">
+                    <div className="w-8 h-8 rounded-xl bg-slate-200 text-slate-700 flex items-center justify-center shrink-0 mt-1 font-bold text-xs">
                       <User className="w-4 h-4" />
                     </div>
                   )}
                 </div>
               )
-            })
-          )}
-
-          {isLoading && (
-            <div className="flex gap-3.5 justify-start items-start">
-              <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-2xs mt-1">
-                <Bot className="w-4 h-4 animate-spin" />
-              </div>
-              <div className="bg-white border border-slate-200/90 rounded-2xl rounded-bl-xs px-4 py-3 shadow-2xs flex items-center gap-3">
-                <div className="flex gap-1">
-                  <span className="w-2 h-2 rounded-full bg-indigo-600 animate-bounce [animation-delay:-0.3s]" />
-                  <span className="w-2 h-2 rounded-full bg-indigo-600 animate-bounce [animation-delay:-0.15s]" />
-                  <span className="w-2 h-2 rounded-full bg-indigo-600 animate-bounce" />
-                </div>
-                <span className="text-xs text-slate-600 font-medium">
-                  Retrieving relevant memory chunks & synthesizing answer...
-                </span>
-              </div>
-            </div>
-          )}
-
-          <div ref={messagesEndRef} />
-        </div>
-      </div>
-
-      <div className="px-4 sm:px-6 py-3 bg-white border-t border-slate-200/80 shrink-0">
-        <div className="max-w-3xl mx-auto">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault()
-              handleSend()
-            }}
-            className="flex items-end gap-2 bg-slate-50 border border-slate-200/90 rounded-2xl p-2 focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-500 focus-within:bg-white transition-all shadow-2xs"
-          >
-            <textarea
-              ref={textareaRef}
-              rows={1}
-              value={inputMessage}
-              onChange={(e) => {
-                setInputMessage(e.target.value)
-                e.target.style.height = 'auto'
-                e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`
-              }}
-              onKeyDown={handleKeyDown}
-              placeholder={
-                selectedMemory
-                  ? `Ask anything about ${selectedMemory.title}...`
-                  : 'Ask about any document, note, image, or transcript in memories...'
-              }
-              disabled={isLoading}
-              className="flex-1 max-h-28 resize-none bg-transparent px-3 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none leading-relaxed"
-            />
-
-            <button
-              type="submit"
-              disabled={!inputMessage.trim() || isLoading}
-              className="p-2.5 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40 disabled:hover:bg-indigo-600 transition-all shrink-0 cursor-pointer shadow-xs"
-            >
-              <Send className="w-4 h-4" />
-            </button>
-          </form>
-
-          <div className="flex items-center justify-between text-[11px] text-slate-400 px-2 mt-1.5">
-            <span>
-              {selectedMemory ? (
-                <>
-                  Context: <strong className="text-slate-600">{selectedMemory.title}</strong>
-                </>
-              ) : (
-                'Context: Global Knowledge across all memories'
-              )}
-            </span>
-            <span className="hidden sm:inline">Shift + Enter for new line · Enter to send</span>
+            })}
           </div>
+        )}
+
+        {/* Loading Spinner */}
+        {isLoading && (
+          <div className="max-w-4xl mx-auto flex gap-3.5 justify-start items-start">
+            <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs mt-1">
+              <Bot className="w-4 h-4 animate-spin" />
+            </div>
+            <div className="bg-white border border-slate-200/90 rounded-2xl rounded-bl-xs px-4 py-3 shadow-xs flex items-center gap-3">
+              <div className="flex gap-1">
+                <span className="w-2 h-2 rounded-full bg-indigo-600 animate-bounce [animation-delay:-0.3s]" />
+                <span className="w-2 h-2 rounded-full bg-indigo-600 animate-bounce [animation-delay:-0.15s]" />
+                <span className="w-2 h-2 rounded-full bg-indigo-600 animate-bounce" />
+              </div>
+              <span className="text-xs text-slate-600 font-semibold">
+                Searching pgvector index, reranking candidate chunks & synthesizing grounded response...
+              </span>
+            </div>
+          </div>
+        )}
+
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Modern Floating Sticky Input Dock */}
+      <div className="sticky bottom-4 z-20 pt-3 bg-gradient-to-t from-[#f8fafd] via-[#f8fafd]/95 to-transparent">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            handleSend()
+          }}
+          className="flex items-end gap-2 bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-2xl p-2.5 focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-500 transition-all shadow-md"
+        >
+          <textarea
+            ref={textareaRef}
+            rows={1}
+            value={inputMessage}
+            onChange={(e) => {
+              setInputMessage(e.target.value)
+              e.target.style.height = 'auto'
+              e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`
+            }}
+            onKeyDown={handleKeyDown}
+            placeholder={
+              selectedMemory
+                ? `Ask anything grounded in "${selectedMemory.title}"...`
+                : 'Ask about any document, note, image, or transcript in memories...'
+            }
+            disabled={isLoading}
+            className="flex-1 max-h-36 resize-none bg-transparent px-3 py-1.5 text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none leading-relaxed"
+          />
+
+          <button
+            type="submit"
+            disabled={!inputMessage.trim() || isLoading}
+            className="p-2.5 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-30 transition-all shrink-0 cursor-pointer shadow-xs"
+          >
+            <Send className="w-4 h-4" />
+          </button>
+        </form>
+
+        <div className="flex items-center justify-between text-[11px] text-slate-400 px-2 mt-1.5 pb-1">
+          <span className="flex items-center gap-1.5">
+            <span>Context:</span>
+            <strong className="text-slate-600 font-semibold">
+              {selectedMemory ? selectedMemory.title : 'Global Knowledge across all memories'}
+            </strong>
+          </span>
+          <span className="hidden sm:inline">Shift + Enter for new line · Enter to send</span>
         </div>
       </div>
 
-      {activePreviewChunk &&
-        createPortal(
-          <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-            <div
-              onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-2xl max-w-xl w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[85vh]"
-            >
-              <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3 bg-slate-50/50 shrink-0">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="p-2 rounded-xl bg-indigo-50 border border-indigo-100 shrink-0">
-                    {getFileIcon(activePreviewChunk.mimeType, activePreviewChunk.filename)}
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="text-sm font-bold text-slate-900 truncate">
-                      {activePreviewChunk.filename || 'Document Chunk'}
-                    </h3>
-                    <div className="flex items-center gap-2 text-xs text-slate-500">
-                      <span>Chunk #{activePreviewChunk.chunkIndex + 1}</span>
-                      <span>•</span>
-                      <span className="font-semibold text-indigo-600">
-                        {Math.round(activePreviewChunk.similarity * 100)}% match
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    onClick={() => handleCopyChunk(activePreviewChunk)}
-                    className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
-                    title="Copy chunk text"
-                  >
-                    {copiedChunkId === activePreviewChunk.id ? (
-                      <Check className="w-4 h-4 text-emerald-600" />
-                    ) : (
-                      <Copy className="w-4 h-4" />
-                    )}
-                  </button>
-                  <button
-                    onClick={() => setActivePreviewChunk(null)}
-                    className="p-1.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-
-              <div
-                data-lenis-prevent="true"
-                className="p-5 overflow-y-auto flex-1 text-xs text-slate-800 leading-relaxed font-mono whitespace-pre-wrap bg-slate-50/50"
-              >
-                {activePreviewChunk.content}
-              </div>
-
-              <div className="px-5 py-3 border-t border-slate-100 bg-white flex items-center justify-between shrink-0 text-xs text-slate-500">
-                <span>{activePreviewChunk.content.length} characters</span>
-                <button
-                  onClick={() => setActivePreviewChunk(null)}
-                  className="px-4 py-1.5 font-semibold text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-colors cursor-pointer"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>,
-          document.body,
-        )}
+      {/* In-App Media & Source Inspector Modal (Zero raw server links) */}
+      <MediaInspectorModal
+        citation={inspectingCitation}
+        onClose={() => setInspectingCitation(null)}
+      />
     </div>
   )
 }

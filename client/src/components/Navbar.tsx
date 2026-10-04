@@ -16,6 +16,7 @@ export default function Navbar({ onToggleSidebar }: NavbarProps) {
   const getPageTitle = () => {
     const path = location.pathname
     if (path.startsWith('/memories')) return 'Memories'
+    if (path.startsWith('/chat')) return 'AI Assistant'
     if (path.startsWith('/settings')) return 'Settings'
     return 'Home'
   }
