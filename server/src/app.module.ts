@@ -1,12 +1,13 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { BullModule } from '@nestjs/bullmq';
 import { AuthModule } from './auth/auth.module.js';
 import { MemoryModule } from './memory/memory.module.js';
-
 import { DocumentModule } from './document/document.module.js';
 import { SearchModule } from './search/search.module.js';
 import { RagModule } from './rag/rag.module.js';
+import { StorageModule } from './storage/storage.module.js';
 
 const dbUrl = process.env.DATABASE_URL || 'sqlite://chronicle.sqlite';
 const isPostgres = dbUrl.startsWith('postgres://') || dbUrl.startsWith('postgresql://');
@@ -16,6 +17,19 @@ const isPostgres = dbUrl.startsWith('postgres://') || dbUrl.startsWith('postgres
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        connection: {
+          host: config.get<string>('REDIS_HOST', 'localhost'),
+          port: Number(config.get<number>('REDIS_PORT', 6379)),
+          password: config.get<string>('REDIS_PASSWORD') || undefined,
+          maxRetriesPerRequest: null,
+        },
+      }),
+    }),
+    StorageModule,
     TypeOrmModule.forRoot(
       isPostgres
         ? {
