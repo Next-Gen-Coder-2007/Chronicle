@@ -9,8 +9,12 @@ import {
   Param,
   Query,
   UseGuards,
+  Res,
+  Req,
+  NotFoundException,
 } from '@nestjs/common';
-import { JwtAuthGuard, CurrentUser } from '../auth/jwt.strategy.js';
+import type { Response, Request } from 'express';
+import { JwtAuthGuard, CurrentUser, Public } from '../auth/jwt.strategy.js';
 import { MemoryService } from './memory.service.js';
 import { CreateMemoryDto } from './dto/create-memory.dto.js';
 import { UpdateMemoryDto } from './dto/update-memory.dto.js';
@@ -119,6 +123,21 @@ export class MemoryController {
     };
   }
 
+  @Patch(':id/media/:mediaId')
+  async updateMedia(
+    @CurrentUser('id') userId: string,
+    @Param('id') id: string,
+    @Param('mediaId') mediaId: string,
+    @Body() body: { name?: string; filename?: string; content?: string },
+  ) {
+    const memory = await this.memoryService.updateMedia(userId, id, mediaId, body);
+    return {
+      success: true,
+      message: 'Attachment updated successfully',
+      data: memory,
+    };
+  }
+
   @Delete(':id/media/:mediaId')
   async removeMedia(
     @CurrentUser('id') userId: string,
@@ -136,5 +155,49 @@ export class MemoryController {
   @Delete(':id')
   async remove(@CurrentUser('id') userId: string, @Param('id') id: string) {
     return this.memoryService.remove(userId, id);
+  }
+
+  @Get(':id/files/:fileId')
+  async getFile(
+    @CurrentUser('id') userId: string,
+    @Param('id') memoryId: string,
+    @Param('fileId') fileId: string,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    const file = await this.memoryService.getFileData(userId, memoryId, fileId);
+    if (!file || !file.data) {
+      throw new NotFoundException('File not found');
+    }
+
+    const totalSize = file.data.length;
+    const mimeType = file.mimeType || 'application/octet-stream';
+    const range = req.headers.range;
+
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(file.filename)}"`);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+
+    if (range) {
+      const parts = range.replace(/bytes=/, '').split('-');
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
+
+      if (start >= totalSize || end >= totalSize) {
+        res.status(416).setHeader('Content-Range', `bytes */${totalSize}`);
+        return res.end();
+      }
+
+      const chunk = file.data.subarray(start, end + 1);
+      res.status(206);
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${totalSize}`);
+      res.setHeader('Content-Length', chunk.length);
+      res.setHeader('Content-Type', mimeType);
+      return res.end(chunk);
+    }
+
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Content-Length', totalSize);
+    return res.end(file.data);
   }
 }

@@ -5,9 +5,12 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   ManyToOne,
+  OneToMany,
   JoinColumn,
 } from 'typeorm';
+import type { Relation } from 'typeorm';
 import { User } from './user.entity.js';
+import { File } from './file.entity.js';
 
 @Entity('memories')
 export class Memory {
@@ -35,23 +38,15 @@ export class Memory {
   @Column({ type: 'simple-array', nullable: true })
   tags?: string[];
 
-  @Column({ type: 'simple-json', nullable: true })
-  media?: Array<{
-    id: string;
-    name: string;
-    url?: string;
-    type: string;
-    size?: number;
-    content?: string;
-    uploadedAt: string;
-  }>;
+  @OneToMany(() => File, (file) => file.memory, { cascade: true })
+  files?: Relation<File[]>;
 
   @Column({ name: 'user_id' })
   userId: string;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
-  user?: User;
+  user?: Relation<User>;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
