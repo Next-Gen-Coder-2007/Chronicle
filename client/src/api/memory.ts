@@ -7,6 +7,8 @@ export interface MemoryMedia {
   type: string
   size?: number
   content?: string
+  status?: 'pending' | 'processing' | 'ready' | 'failed'
+  processingError?: string
   uploadedAt: string
 }
 
