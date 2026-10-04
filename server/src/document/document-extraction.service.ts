@@ -4,7 +4,10 @@ import {
   UnsupportedMediaTypeException,
   Logger,
 } from '@nestjs/common';
-import type { DocumentExtractor } from './extractors/document-extractor.interface.js';
+import type {
+  DocumentExtractor,
+  ExtractionResult,
+} from './extractors/document-extractor.interface.js';
 import { TextExtractor } from './extractors/text.extractor.js';
 import { PdfExtractor } from './extractors/pdf.extractor.js';
 import { DocxExtractor } from './extractors/docx.extractor.js';
@@ -53,6 +56,15 @@ export class DocumentExtractionService {
     mimeType: string,
     filename: string,
   ): Promise<string> {
+    const detailed = await this.extractDetailed(data, mimeType, filename);
+    return detailed.fullText;
+  }
+
+  async extractDetailed(
+    data: Buffer | undefined | null,
+    mimeType: string,
+    filename: string,
+  ): Promise<ExtractionResult> {
     if (!data || data.length === 0) {
       throw new BadRequestException(
         `Cannot extract content from file "${filename}": file data buffer is empty or missing.`,
@@ -69,15 +81,27 @@ export class DocumentExtractionService {
 
     try {
       this.logger.log(`Extracting content from "${filename}" (${mimeType})...`);
-      const extractedText = await extractor.extract(data, filename, mimeType);
 
+      if (typeof extractor.extractStructured === 'function') {
+        const result = await extractor.extractStructured(data, filename, mimeType);
+        return {
+          fullText: result.fullText.replace(/\r\n/g, '\n').replace(/[ \t]+/g, ' ').trim(),
+          segments: result.segments,
+          metadata: result.metadata,
+        };
+      }
+
+      const extractedText = await extractor.extract(data, filename, mimeType);
       const cleanedText = extractedText
         .replace(/\r\n/g, '\n')
         .replace(/[ \t]+/g, ' ')
         .replace(/\n{3,}/g, '\n\n')
         .trim();
 
-      return cleanedText;
+      return {
+        fullText: cleanedText,
+        metadata: { filename, mimeType },
+      };
     } catch (err: any) {
       this.logger.error(`Extraction failed for "${filename}": ${err.message}`);
       throw new BadRequestException(`Document extraction failed for "${filename}": ${err.message}`);

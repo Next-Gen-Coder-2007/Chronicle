@@ -21,11 +21,18 @@ export interface GeneratedChunk {
   chunkIndex: number;
   charCount: number;
   tokenCount: number;
+  pageNumber?: number;
+  startTimestamp?: number;
+  endTimestamp?: number;
+  contentId?: string;
   metadata: {
     section?: string;
     startChar: number;
     endChar: number;
     totalChunks?: number;
+    pageNumber?: number;
+    startTimestamp?: number;
+    endTimestamp?: number;
     [key: string]: any;
   };
 }
@@ -300,14 +307,17 @@ export class ChunkingService {
   ): Promise<DocumentChunk[]> {
     const document = await this.documentRepository.findOne({
       where: { id: documentId },
-      relations: { file: true },
+      relations: { file: true, contents: true },
     });
 
     if (!document) {
       throw new NotFoundException(`Document with id "${documentId}" not found.`);
     }
 
-    if (!document.content || document.content.trim().length === 0) {
+    if (
+      (!document.content || document.content.trim().length === 0) &&
+      (!document.contents || document.contents.length === 0)
+    ) {
       this.logger.warn(
         `Document "${documentId}" has empty content. Cleaning existing chunks if any.`,
       );
@@ -315,21 +325,89 @@ export class ChunkingService {
       return [];
     }
 
-    const customMetadata: Record<string, any> = {
+    const baseMetadata: Record<string, any> = {
       ...options?.customMetadata,
     };
 
     if (document.file) {
-      customMetadata.filename = document.file.filename;
-      customMetadata.mimeType = document.file.mimeType;
-      customMetadata.fileId = document.file.id;
-      customMetadata.memoryId = document.file.memoryId;
+      baseMetadata.filename = document.file.filename;
+      baseMetadata.mimeType = document.file.mimeType;
+      baseMetadata.fileId = document.file.id;
+      baseMetadata.memoryId = document.file.memoryId;
     }
 
-    const generatedChunks = this.chunkText(document.content, {
-      ...options,
-      customMetadata,
-    });
+    const generatedChunks: GeneratedChunk[] = [];
+    let globalChunkIndex = 0;
+
+    if (document.contents && document.contents.length > 0) {
+      for (const contentEntity of document.contents) {
+        const text = (contentEntity.text || '').trim();
+        if (!text) continue;
+
+        const maxChunkSize = options?.maxChunkSize || ChunkingService.DEFAULT_MAX_CHUNK_SIZE;
+
+        if (text.length <= maxChunkSize) {
+          generatedChunks.push({
+            content: text,
+            chunkIndex: globalChunkIndex++,
+            charCount: text.length,
+            tokenCount: this.estimateTokens(text),
+            pageNumber: contentEntity.pageNumber,
+            startTimestamp: contentEntity.startTimestamp,
+            endTimestamp: contentEntity.endTimestamp,
+            contentId: contentEntity.id,
+            metadata: {
+              ...baseMetadata,
+              ...contentEntity.metadata,
+              section: contentEntity.sourceReference,
+              contentType: contentEntity.contentType,
+              pageNumber: contentEntity.pageNumber,
+              startTimestamp: contentEntity.startTimestamp,
+              endTimestamp: contentEntity.endTimestamp,
+              startChar: 0,
+              endChar: text.length,
+            },
+          });
+        } else {
+          const subChunks = this.chunkText(text, {
+            ...options,
+            customMetadata: {
+              ...baseMetadata,
+              ...contentEntity.metadata,
+              contentType: contentEntity.contentType,
+              pageNumber: contentEntity.pageNumber,
+              startTimestamp: contentEntity.startTimestamp,
+              endTimestamp: contentEntity.endTimestamp,
+            },
+          });
+
+          for (const sc of subChunks) {
+            generatedChunks.push({
+              content: sc.content,
+              chunkIndex: globalChunkIndex++,
+              charCount: sc.charCount,
+              tokenCount: sc.tokenCount,
+              pageNumber: contentEntity.pageNumber,
+              startTimestamp: contentEntity.startTimestamp,
+              endTimestamp: contentEntity.endTimestamp,
+              contentId: contentEntity.id,
+              metadata: {
+                ...sc.metadata,
+                pageNumber: contentEntity.pageNumber,
+                startTimestamp: contentEntity.startTimestamp,
+                endTimestamp: contentEntity.endTimestamp,
+              },
+            });
+          }
+        }
+      }
+    } else if (document.content) {
+      const standardChunks = this.chunkText(document.content, {
+        ...options,
+        customMetadata: baseMetadata,
+      });
+      generatedChunks.push(...standardChunks);
+    }
 
     this.logger.log(
       `Generated ${generatedChunks.length} chunks for Document "${documentId}". Persisting...`,
@@ -341,6 +419,10 @@ export class ChunkingService {
       const chunkEntities = generatedChunks.map((gc) =>
         manager.create(DocumentChunk, {
           documentId,
+          contentId: gc.contentId,
+          pageNumber: gc.pageNumber,
+          startTimestamp: gc.startTimestamp,
+          endTimestamp: gc.endTimestamp,
           chunkIndex: gc.chunkIndex,
           content: gc.content,
           charCount: gc.charCount,

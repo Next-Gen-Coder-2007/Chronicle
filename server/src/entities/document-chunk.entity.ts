@@ -10,6 +10,7 @@ import {
 } from 'typeorm';
 import type { Relation } from 'typeorm';
 import { Document } from './document.entity.js';
+import { Content } from './content.entity.js';
 
 const isPostgres =
   process.env.DATABASE_URL?.startsWith('postgres://') ||
@@ -73,8 +74,31 @@ export class DocumentChunk {
     totalChunks?: number;
     mimeType?: string;
     filename?: string;
+    pageNumber?: number;
+    startTimestamp?: number;
+    endTimestamp?: number;
+    speaker?: string;
     [key: string]: any;
   };
+
+  @Column({ name: 'page_number', type: 'int', nullable: true })
+  @Index()
+  pageNumber?: number;
+
+  @Column({ name: 'start_timestamp', type: 'float', nullable: true })
+  @Index()
+  startTimestamp?: number;
+
+  @Column({ name: 'end_timestamp', type: 'float', nullable: true })
+  endTimestamp?: number;
+
+  @Column({ name: 'content_id', nullable: true })
+  @Index()
+  contentId?: string;
+
+  @ManyToOne(() => Content, (content) => content.chunks, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'content_id' })
+  contentEntity?: Relation<Content>;
 
   @Column({ name: 'document_id' })
   @Index()
