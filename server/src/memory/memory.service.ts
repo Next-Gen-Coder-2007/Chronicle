@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, OnModuleInit } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, OnModuleInit, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Memory } from '../entities/memory.entity.js';
@@ -6,9 +6,14 @@ import { File } from '../entities/file.entity.js';
 import { Document } from '../entities/document.entity.js';
 import { CreateMemoryDto } from './dto/create-memory.dto.js';
 import { UpdateMemoryDto } from './dto/update-memory.dto.js';
+import { DocumentExtractionService } from '../document/document-extraction.service.js';
+import { ChunkingService } from '../document/chunking.service.js';
+import { EmbeddingService } from '../document/embedding.service.js';
 
 @Injectable()
 export class MemoryService implements OnModuleInit {
+  private readonly logger = new Logger(MemoryService.name);
+
   constructor(
     @InjectRepository(Memory)
     private readonly memoryRepository: Repository<Memory>,
@@ -16,6 +21,9 @@ export class MemoryService implements OnModuleInit {
     private readonly fileRepository: Repository<File>,
     @InjectRepository(Document)
     private readonly documentRepository: Repository<Document>,
+    private readonly extractionService: DocumentExtractionService,
+    private readonly chunkingService: ChunkingService,
+    private readonly embeddingService: EmbeddingService,
   ) {}
 
   async onModuleInit() {
@@ -34,7 +42,6 @@ export class MemoryService implements OnModuleInit {
         await this.documentRepository.save(doc);
       }
     } catch {
-      // Ignored if table not ready
     }
   }
 
@@ -49,13 +56,15 @@ export class MemoryService implements OnModuleInit {
         url: !isNote ? `${backendBase}/memories/${memory.id}/files/${file.id}` : undefined,
         type: file.mimeType,
         size: file.size,
-        content: file.document?.content || undefined,
+        content: isNote ? (file.document?.content || undefined) : undefined,
+        status: file.document?.status || 'ready',
+        processingError: file.document?.processingError || undefined,
         uploadedAt: file.createdAt instanceof Date ? file.createdAt.toISOString() : String(file.createdAt),
       };
     });
 
     const cleanFiles = files.map((f) => {
-      const { data, ...rest } = f as any;
+      const { data, document, ...rest } = f as any;
       return rest;
     });
 
@@ -137,9 +146,23 @@ export class MemoryService implements OnModuleInit {
       throw new NotFoundException(`Memory with id "${id}" not found`);
     }
 
+    const isNote = mediaItem.type === 'note' || mediaItem.name === 'Note';
+    const isImage =
+      Boolean(mediaItem.type && mediaItem.type.startsWith('image/')) ||
+      /\.(jpe?g|png|gif|webp|svg|bmp|ico|tiff)$/i.test(mediaItem.name || '');
+    const isAudio =
+      Boolean(mediaItem.type && mediaItem.type.startsWith('audio/')) ||
+      /\.(mp3|wav|ogg|m4a|aac|flac|wma)$/i.test(mediaItem.name || '');
     const isVideo =
       Boolean(mediaItem.type && mediaItem.type.startsWith('video/')) ||
-      /\.(mp4|webm|mov|mkv|avi|wmv|flv)$/i.test(mediaItem.name || '');
+      /\.(mp4|webm|mov|mkv|avi|wmv|flv|m4v)$/i.test(mediaItem.name || '');
+    const isDocument = this.extractionService.canExtract(mediaItem.type || '', mediaItem.name || '');
+
+    if (!isNote && !isImage && !isAudio && !isVideo && !isDocument) {
+      throw new BadRequestException(
+        `Unsupported file type. Allowed files are images, audio, video, and documents (PDF, DOCX, TXT, CSV, JSON, HTML).`,
+      );
+    }
 
     const maxSizeBytes = isVideo ? 20 * 1024 * 1024 : 5 * 1024 * 1024;
     const limitLabel = isVideo ? '20MB' : '5MB';
@@ -169,10 +192,42 @@ export class MemoryService implements OnModuleInit {
       binaryData = Buffer.from(mediaItem.content, 'utf-8');
     }
 
-    const isNote = mediaItem.type === 'note' || mediaItem.name === 'Note';
-    const mimeType = isNote
-      ? 'note'
-      : mediaItem.type || (isVideo ? 'video/mp4' : 'application/octet-stream');
+    let mimeType = isNote ? 'note' : mediaItem.type;
+    if (!mimeType || mimeType === 'application/octet-stream') {
+      if (isNote) mimeType = 'note';
+      else if (isVideo) {
+        if (/\.webm$/i.test(mediaItem.name || '')) mimeType = 'video/webm';
+        else if (/\.mov$/i.test(mediaItem.name || '')) mimeType = 'video/quicktime';
+        else if (/\.avi$/i.test(mediaItem.name || '')) mimeType = 'video/x-msvideo';
+        else if (/\.mkv$/i.test(mediaItem.name || '')) mimeType = 'video/x-matroska';
+        else if (/\.wmv$/i.test(mediaItem.name || '')) mimeType = 'video/x-ms-wmv';
+        else if (/\.flv$/i.test(mediaItem.name || '')) mimeType = 'video/x-flv';
+        else if (/\.3gp$/i.test(mediaItem.name || '')) mimeType = 'video/3gpp';
+        else mimeType = 'video/mp4';
+      }
+      else if (isAudio) {
+        if (/\.wav$/i.test(mediaItem.name || '')) mimeType = 'audio/wav';
+        else if (/\.ogg$/i.test(mediaItem.name || '')) mimeType = 'audio/ogg';
+        else if (/\.flac$/i.test(mediaItem.name || '')) mimeType = 'audio/flac';
+        else if (/\.m4a$/i.test(mediaItem.name || '')) mimeType = 'audio/mp4';
+        else if (/\.aac$/i.test(mediaItem.name || '')) mimeType = 'audio/aac';
+        else if (/\.webm$/i.test(mediaItem.name || '')) mimeType = 'audio/webm';
+        else mimeType = 'audio/mpeg';
+      } else if (isImage) {
+        if (/\.png$/i.test(mediaItem.name || '')) mimeType = 'image/png';
+        else if (/\.webp$/i.test(mediaItem.name || '')) mimeType = 'image/webp';
+        else if (/\.gif$/i.test(mediaItem.name || '')) mimeType = 'image/gif';
+        else if (/\.svg$/i.test(mediaItem.name || '')) mimeType = 'image/svg+xml';
+        else mimeType = 'image/jpeg';
+      }
+      else if (/\.pdf$/i.test(mediaItem.name || '')) mimeType = 'application/pdf';
+      else if (/\.docx$/i.test(mediaItem.name || '')) mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      else if (/\.doc$/i.test(mediaItem.name || '')) mimeType = 'application/msword';
+      else if (/\.csv$/i.test(mediaItem.name || '')) mimeType = 'text/csv';
+      else if (/\.json$/i.test(mediaItem.name || '')) mimeType = 'application/json';
+      else if (/\.html?$/i.test(mediaItem.name || '')) mimeType = 'text/html';
+      else mimeType = 'text/plain';
+    }
 
     const file = this.fileRepository.create({
       filename: mediaItem.name || (isNote ? 'Note' : 'Attachment'),
@@ -181,31 +236,78 @@ export class MemoryService implements OnModuleInit {
       data: binaryData,
       memoryId: memory.id,
     });
-
     const savedFile = await this.fileRepository.save(file);
 
-    let docContent = mediaItem.content || '';
-    if (!docContent && binaryData && binaryData.length > 0) {
-      const isTextFile =
-        (mimeType && mimeType.startsWith('text/')) ||
-        /\.(txt|md|markdown|json|csv|tsv|html|xml|log|yaml|yml|sql|js|ts|py)$/i.test(file.filename);
+    const shouldExtract = Boolean(
+      binaryData &&
+      binaryData.length > 0 &&
+      this.extractionService.canExtract(mimeType, file.filename),
+    );
 
-      if (isTextFile) {
-        try {
-          docContent = binaryData.toString('utf-8').trim();
-        } catch {
-          docContent = '';
-        }
-      }
+    let docContent = '';
+    if (isNote && mediaItem.content) {
+      docContent = mediaItem.content;
     }
 
     const document = this.documentRepository.create({
-      content: docContent,
+      content: docContent || undefined,
       fileId: savedFile.id,
+      status: shouldExtract ? 'processing' : 'ready',
     });
-    await this.documentRepository.save(document);
+    const savedDoc = await this.documentRepository.save(document);
+
+    if (isNote && docContent && docContent.trim().length > 0) {
+      this.chunkingService
+        .chunkDocument(savedDoc.id)
+        .then((chunks) => this.embeddingService.embedChunks(chunks))
+        .catch((err: any) => {
+          this.logger.error(`Automatic chunking/embedding failed for note "${savedDoc.id}": ${err.message}`);
+        });
+    }
+
+    if (shouldExtract && binaryData) {
+      this.processDocumentInBackground(savedDoc.id, binaryData, mimeType, file.filename).catch((err: any) => {
+        this.logger.error(`Background document processing uncaught error for "${savedDoc.id}": ${err.message}`);
+      });
+    }
 
     return this.findOne(userId, id);
+  }
+
+  private async processDocumentInBackground(
+    documentId: string,
+    binaryData: Buffer,
+    mimeType: string,
+    filename: string,
+  ): Promise<void> {
+    try {
+      this.logger.log(`Starting background extraction for document "${documentId}" (${filename})...`);
+      const extractedContent = await this.extractionService.extract(binaryData, mimeType, filename);
+
+      const doc = await this.documentRepository.findOne({ where: { id: documentId } });
+      if (doc) {
+        doc.content = extractedContent;
+        doc.status = 'ready';
+        doc.processingError = undefined;
+        await this.documentRepository.save(doc);
+
+        const chunks = await this.chunkingService.chunkDocument(doc.id);
+        await this.embeddingService.embedChunks(chunks);
+        this.logger.log(`Background extraction, chunking, and embedding completed for document "${documentId}".`);
+      }
+    } catch (err: any) {
+      this.logger.error(`Background extraction failed for document "${documentId}": ${err.message}`);
+      try {
+        const doc = await this.documentRepository.findOne({ where: { id: documentId } });
+        if (doc) {
+          doc.status = 'failed';
+          doc.processingError = err.message || 'Processing failed';
+          await this.documentRepository.save(doc);
+        }
+      } catch (saveErr: any) {
+        this.logger.error(`Failed to record failure status for document "${documentId}": ${saveErr.message}`);
+      }
+    }
   }
 
   async updateMedia(
@@ -237,15 +339,23 @@ export class MemoryService implements OnModuleInit {
     }
 
     if (data.content !== undefined) {
+      let savedDoc: Document;
       if (file.document) {
         file.document.content = data.content;
-        await this.documentRepository.save(file.document);
+        savedDoc = await this.documentRepository.save(file.document);
       } else {
         const doc = this.documentRepository.create({
           content: data.content,
           fileId: file.id,
         });
-        await this.documentRepository.save(doc);
+        savedDoc = await this.documentRepository.save(doc);
+      }
+
+      try {
+        const chunks = await this.chunkingService.chunkDocument(savedDoc.id);
+        await this.embeddingService.embedChunks(chunks);
+      } catch (err: any) {
+        this.logger.error(`Automatic chunking/embedding failed for updated document "${savedDoc.id}": ${err.message}`);
       }
     }
 
