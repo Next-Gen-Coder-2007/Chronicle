@@ -7,6 +7,7 @@ import { DocumentModule } from '../document/document.module.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { SearchService } from './search.service.js';
 import { SearchController } from './search.controller.js';
+import { RerankerService } from './reranker.service.js';
 
 @Module({
   imports: [
@@ -15,7 +16,7 @@ import { SearchController } from './search.controller.js';
     AuthModule,
   ],
   controllers: [SearchController],
-  providers: [SearchService],
-  exports: [SearchService],
+  providers: [SearchService, RerankerService],
+  exports: [SearchService, RerankerService],
 })
 export class SearchModule {}

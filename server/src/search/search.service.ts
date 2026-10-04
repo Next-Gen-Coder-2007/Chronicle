@@ -10,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import pgvector from 'pgvector';
 import { EmbeddingService } from '../document/embedding.service.js';
 import { DocumentChunk } from '../entities/document-chunk.entity.js';
+import { RerankerService } from './reranker.service.js';
 
 export interface SearchResultChunk {
   id: string;
@@ -24,6 +25,11 @@ export interface SearchResultChunk {
   filename?: string;
   mimeType?: string;
   memoryId?: string;
+  pageNumber?: number;
+  startTimestamp?: number;
+  endTimestamp?: number;
+  contentId?: string;
+  contentType?: string;
 }
 
 export interface SearchOptions {
@@ -42,6 +48,7 @@ export class SearchService implements OnModuleInit {
     @InjectRepository(DocumentChunk)
     private readonly chunkRepository: Repository<DocumentChunk>,
     private readonly embeddingService: EmbeddingService,
+    private readonly rerankerService: RerankerService,
     private readonly configService: ConfigService,
     private readonly dataSource: DataSource,
   ) {}
@@ -60,9 +67,12 @@ export class SearchService implements OnModuleInit {
         await this.dataSource.query(
           'CREATE INDEX IF NOT EXISTS document_chunks_embedding_cosine_idx ON document_chunks USING hnsw (embedding vector_cosine_ops);',
         );
-        this.logger.log('pgvector HNSW index initialized on document_chunks.');
+        await this.dataSource.query(
+          "CREATE INDEX IF NOT EXISTS document_chunks_content_tsv_idx ON document_chunks USING gin (to_tsvector('english', content));",
+        );
+        this.logger.log('pgvector HNSW index and full-text GIN index verified on document_chunks.');
       } catch (err: any) {
-        this.logger.warn(`Could not verify pgvector HNSW index: ${err.message}`);
+        this.logger.warn(`Could not verify pgvector/GIN indexes: ${err.message}`);
       }
     }
   }
@@ -76,9 +86,18 @@ export class SearchService implements OnModuleInit {
     }
 
     const queryEmbedding = await this.embeddingService.generateEmbedding(query);
-    return this.searchByVector(queryEmbedding, {
+    const candidateLimit = Math.max(30, (options?.limit ?? 10) * 3);
+
+    const candidates = await this.searchByVector(queryEmbedding, {
       ...options,
+      limit: candidateLimit,
       queryText: query,
+    });
+
+    // Apply multi-factor reranking to initial candidates
+    return this.rerankerService.rerank(query, candidates, {
+      topK: options?.limit ?? 10,
+      minScore: options?.minSimilarity,
     });
   }
 
@@ -154,7 +173,7 @@ export class SearchService implements OnModuleInit {
     }
 
     const lexicalRatio = matchedTerms / terms.length;
-    const combined = similarity * 0.6 + lexicalRatio * 0.4;
+    const combined = similarity * 0.65 + lexicalRatio * 0.35;
     return Number(combined.toFixed(6));
   }
 
@@ -193,6 +212,10 @@ export class SearchService implements OnModuleInit {
         chunk.chunk_index AS "chunkIndex",
         chunk.char_count AS "charCount",
         chunk.token_count AS "tokenCount",
+        chunk.page_number AS "pageNumber",
+        chunk.start_timestamp AS "startTimestamp",
+        chunk.end_timestamp AS "endTimestamp",
+        chunk.content_id AS "contentId",
         chunk.metadata AS metadata,
         chunk.document_id AS "documentId",
         (1 - (chunk.embedding <=> $1::vector)) AS similarity,
@@ -219,6 +242,11 @@ export class SearchService implements OnModuleInit {
         options.queryText,
       );
 
+      const parsedMeta =
+        typeof row.metadata === 'string'
+          ? JSON.parse(row.metadata)
+          : row.metadata;
+
       return {
         id: row.id,
         content: row.content,
@@ -226,11 +254,15 @@ export class SearchService implements OnModuleInit {
         charCount: Number(row.charCount),
         tokenCount:
           row.tokenCount !== null ? Number(row.tokenCount) : undefined,
+        pageNumber: row.pageNumber !== null ? Number(row.pageNumber) : undefined,
+        startTimestamp:
+          row.startTimestamp !== null ? Number(row.startTimestamp) : undefined,
+        endTimestamp:
+          row.endTimestamp !== null ? Number(row.endTimestamp) : undefined,
+        contentId: row.contentId || undefined,
+        contentType: parsedMeta?.contentType,
         similarity: hybridSim,
-        metadata:
-          typeof row.metadata === 'string'
-            ? JSON.parse(row.metadata)
-            : row.metadata,
+        metadata: parsedMeta,
         documentId: row.documentId,
         fileId: row.fileId,
         filename: row.filename,
@@ -313,6 +345,11 @@ export class SearchService implements OnModuleInit {
         chunkIndex: chunk.chunkIndex,
         charCount: chunk.charCount,
         tokenCount: chunk.tokenCount,
+        pageNumber: chunk.pageNumber,
+        startTimestamp: chunk.startTimestamp,
+        endTimestamp: chunk.endTimestamp,
+        contentId: chunk.contentId,
+        contentType: chunk.metadata?.contentType,
         similarity: hybridSim,
         metadata: chunk.metadata,
         documentId: chunk.documentId,
