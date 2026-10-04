@@ -4,6 +4,10 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from './auth/auth.module.js';
 import { MemoryModule } from './memory/memory.module.js';
 
+import { DocumentModule } from './document/document.module.js';
+import { SearchModule } from './search/search.module.js';
+import { RagModule } from './rag/rag.module.js';
+
 const dbUrl = process.env.DATABASE_URL || 'sqlite://chronicle.sqlite';
 const isPostgres = dbUrl.startsWith('postgres://') || dbUrl.startsWith('postgresql://');
 
@@ -30,6 +34,9 @@ const isPostgres = dbUrl.startsWith('postgres://') || dbUrl.startsWith('postgres
     ),
     AuthModule,
     MemoryModule,
+    DocumentModule,
+    SearchModule,
+    RagModule,
   ],
 })
 export class AppModule {}
