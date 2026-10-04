@@ -12,17 +12,22 @@ import {
   Res,
   Req,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import type { Response, Request } from 'express';
 import { JwtAuthGuard, CurrentUser, Public } from '../auth/jwt.strategy.js';
 import { MemoryService } from './memory.service.js';
+import { SearchService } from '../search/search.service.js';
 import { CreateMemoryDto } from './dto/create-memory.dto.js';
 import { UpdateMemoryDto } from './dto/update-memory.dto.js';
 
 @Controller('memories')
 @UseGuards(JwtAuthGuard)
 export class MemoryController {
-  constructor(private readonly memoryService: MemoryService) {}
+  constructor(
+    private readonly memoryService: MemoryService,
+    private readonly searchService: SearchService,
+  ) {}
 
   @Post()
   async create(
@@ -199,5 +204,38 @@ export class MemoryController {
     res.setHeader('Content-Type', mimeType);
     res.setHeader('Content-Length', totalSize);
     return res.end(file.data);
+  }
+
+  @Get(':id/search')
+  async searchMemory(
+    @CurrentUser('id') userId: string,
+    @Param('id') memoryId: string,
+    @Query('q') query?: string,
+    @Query('query') queryAlt?: string,
+    @Query('limit') limit?: string,
+    @Query('minSimilarity') minSimilarity?: string,
+  ) {
+    const searchText = (query || queryAlt || '').trim();
+    if (!searchText) {
+      throw new BadRequestException('Search query is required.');
+    }
+
+    const limitNum = limit ? parseInt(limit, 10) : undefined;
+    const minSimNum = minSimilarity ? parseFloat(minSimilarity) : undefined;
+
+    const results = await this.searchService.search(searchText, {
+      memoryId,
+      userId,
+      limit: limitNum,
+      minSimilarity: minSimNum,
+    });
+
+    return {
+      success: true,
+      query: searchText,
+      memoryId,
+      count: results.length,
+      data: results,
+    };
   }
 }
