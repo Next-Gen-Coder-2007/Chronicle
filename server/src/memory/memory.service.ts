@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, OnModuleInit, Logger } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException, BadRequestException, OnModuleInit, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Memory } from '../entities/memory.entity.js';
@@ -9,6 +9,8 @@ import { UpdateMemoryDto } from './dto/update-memory.dto.js';
 import { DocumentExtractionService } from '../document/document-extraction.service.js';
 import { ChunkingService } from '../document/chunking.service.js';
 import { EmbeddingService } from '../document/embedding.service.js';
+import { DocumentService } from '../document/document.service.js';
+import { STORAGE_SERVICE, type StorageService } from '../storage/storage.interface.js';
 
 @Injectable()
 export class MemoryService implements OnModuleInit {
@@ -24,6 +26,9 @@ export class MemoryService implements OnModuleInit {
     private readonly extractionService: DocumentExtractionService,
     private readonly chunkingService: ChunkingService,
     private readonly embeddingService: EmbeddingService,
+    private readonly documentService: DocumentService,
+    @Inject(STORAGE_SERVICE)
+    private readonly storageService: StorageService,
   ) {}
 
   async onModuleInit() {
@@ -229,11 +234,25 @@ export class MemoryService implements OnModuleInit {
       else mimeType = 'text/plain';
     }
 
+    let storageKey: string | undefined;
+    if (binaryData && binaryData.length > 0) {
+      try {
+        const safeName = (mediaItem.name || 'attachment').replace(/[^a-zA-Z0-9._-]/g, '_');
+        const key = `memories/${memory.id}/${Date.now()}-${safeName}`;
+        const stored = await this.storageService.save(key, binaryData, mimeType);
+        storageKey = stored.storageKey;
+      } catch (err: any) {
+        this.logger.warn(`Could not save file to disk storage: ${err.message}`);
+      }
+    }
+
     const file = this.fileRepository.create({
       filename: mediaItem.name || (isNote ? 'Note' : 'Attachment'),
       mimeType,
       size: mediaItem.size || (binaryData ? binaryData.length : 0),
       data: binaryData,
+      storageKey,
+      userId,
       memoryId: memory.id,
     });
     const savedFile = await this.fileRepository.save(file);
@@ -266,48 +285,14 @@ export class MemoryService implements OnModuleInit {
     }
 
     if (shouldExtract && binaryData) {
-      this.processDocumentInBackground(savedDoc.id, binaryData, mimeType, file.filename).catch((err: any) => {
-        this.logger.error(`Background document processing uncaught error for "${savedDoc.id}": ${err.message}`);
-      });
+      this.documentService
+        .processDocument(savedDoc.id, binaryData, mimeType, file.filename)
+        .catch((err: any) => {
+          this.logger.error(`Document processing failed for "${savedDoc.id}": ${err.message}`);
+        });
     }
 
     return this.findOne(userId, id);
-  }
-
-  private async processDocumentInBackground(
-    documentId: string,
-    binaryData: Buffer,
-    mimeType: string,
-    filename: string,
-  ): Promise<void> {
-    try {
-      this.logger.log(`Starting background extraction for document "${documentId}" (${filename})...`);
-      const extractedContent = await this.extractionService.extract(binaryData, mimeType, filename);
-
-      const doc = await this.documentRepository.findOne({ where: { id: documentId } });
-      if (doc) {
-        doc.content = extractedContent;
-        doc.status = 'ready';
-        doc.processingError = undefined;
-        await this.documentRepository.save(doc);
-
-        const chunks = await this.chunkingService.chunkDocument(doc.id);
-        await this.embeddingService.embedChunks(chunks);
-        this.logger.log(`Background extraction, chunking, and embedding completed for document "${documentId}".`);
-      }
-    } catch (err: any) {
-      this.logger.error(`Background extraction failed for document "${documentId}": ${err.message}`);
-      try {
-        const doc = await this.documentRepository.findOne({ where: { id: documentId } });
-        if (doc) {
-          doc.status = 'failed';
-          doc.processingError = err.message || 'Processing failed';
-          await this.documentRepository.save(doc);
-        }
-      } catch (saveErr: any) {
-        this.logger.error(`Failed to record failure status for document "${documentId}": ${saveErr.message}`);
-      }
-    }
   }
 
   async updateMedia(
@@ -393,7 +378,7 @@ export class MemoryService implements OnModuleInit {
   }
 
   async getFileData(userId: string, memoryId: string, fileId: string): Promise<File | null> {
-    return this.fileRepository
+    const file = await this.fileRepository
       .createQueryBuilder('file')
       .innerJoin('file.memory', 'memory')
       .addSelect('file.data')
@@ -403,5 +388,15 @@ export class MemoryService implements OnModuleInit {
         userId,
       })
       .getOne();
+
+    if (file && (!file.data || file.data.length === 0) && file.storageKey) {
+      try {
+        file.data = await this.storageService.get(file.storageKey);
+      } catch (err: any) {
+        this.logger.error(`Failed to load file from storageKey "${file.storageKey}": ${err.message}`);
+      }
+    }
+
+    return file;
   }
 }

@@ -21,12 +21,15 @@ import { SearchService } from '../search/search.service.js';
 import { CreateMemoryDto } from './dto/create-memory.dto.js';
 import { UpdateMemoryDto } from './dto/update-memory.dto.js';
 
+import { RagService } from '../rag/rag.service.js';
+
 @Controller('memories')
 @UseGuards(JwtAuthGuard)
 export class MemoryController {
   constructor(
     private readonly memoryService: MemoryService,
     private readonly searchService: SearchService,
+    private readonly ragService: RagService,
   ) {}
 
   @Post()
@@ -236,6 +239,18 @@ export class MemoryController {
       memoryId,
       count: results.length,
       data: results,
+    };
+  }
+
+  @Get(':id/summary')
+  async getSummary(
+    @CurrentUser('id') userId: string,
+    @Param('id') memoryId: string,
+  ) {
+    const summary = await this.ragService.generateMemorySummary(userId, memoryId);
+    return {
+      success: true,
+      data: summary,
     };
   }
 }

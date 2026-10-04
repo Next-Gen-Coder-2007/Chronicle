@@ -8,6 +8,7 @@ import { MemoryController } from './memory.controller.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { DocumentModule } from '../document/document.module.js';
 import { SearchModule } from '../search/search.module.js';
+import { RagModule } from '../rag/rag.module.js';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { SearchModule } from '../search/search.module.js';
     AuthModule,
     DocumentModule,
     SearchModule,
+    RagModule,
   ],
   controllers: [MemoryController],
   providers: [MemoryService],
