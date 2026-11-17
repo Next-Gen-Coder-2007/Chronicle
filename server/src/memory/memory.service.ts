@@ -51,14 +51,14 @@ export class MemoryService implements OnModuleInit {
   }
 
   private formatMemory(memory: Memory): any {
-    const backendBase = process.env.BACKEND_URL || 'http://localhost:5000';
+    const backendBase = process.env.BACKEND_URL ? process.env.BACKEND_URL.replace(/\/+$/, '') : '';
     const files = memory.files || [];
     const media = files.map((file) => {
       const isNote = file.mimeType === 'note' || file.filename === 'Note';
       return {
         id: file.id,
         name: file.filename,
-        url: !isNote ? `${backendBase}/memories/${memory.id}/files/${file.id}` : undefined,
+        url: !isNote ? `${backendBase}/api/memories/${memory.id}/files/${file.id}` : undefined,
         type: file.mimeType,
         size: file.size,
         content: isNote ? (file.document?.content || undefined) : undefined,

@@ -1,8 +1,15 @@
 import axios, { type AxiosError } from 'axios'
 import { showToast } from '../utils/toast'
 
+// Support Vercel internal service binding (if executed in a serverless function runtime),
+// VITE_API_BASE_URL env var, or default to '/api' for same-origin routing in Vercel.
+const runtimeProcess = typeof globalThis !== 'undefined' ? (globalThis as any).process : undefined
+const serverBindingUrl = runtimeProcess?.env?.SERVER_URL
+  ? `${runtimeProcess.env.SERVER_URL.replace(/\/+$/, '')}/api`
+  : undefined
+
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000',
+  baseURL: serverBindingUrl || import.meta.env.VITE_API_BASE_URL || '/api',
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
@@ -22,17 +29,21 @@ api.interceptors.response.use(
       message = message.join(', ')
     }
 
+    const isAuthMe = Boolean(url && url.endsWith('/auth/me'))
+    const isAuthLogin = Boolean(url && url.endsWith('/auth/login'))
+    const isAuthRegister = Boolean(url && url.endsWith('/auth/register'))
+
     if (status === 401) {
-      if (url !== '/auth/me' && url !== '/auth/login' && url !== '/auth/register') {
+      if (!isAuthMe && !isAuthLogin && !isAuthRegister) {
         showToast('Session expired. You have been logged out.', 'error', 5000)
         if (window.location.pathname !== '/login' && window.location.pathname !== '/register') {
           window.location.href = '/login'
         }
-      } else if (url === '/auth/login' || url === '/auth/register') {
+      } else if (isAuthLogin || isAuthRegister) {
         showToast(message, 'error', 5000)
       }
     } else {
-      if (url !== '/auth/me') {
+      if (!isAuthMe) {
         showToast(message, 'error', 5000)
       }
     }
